@@ -57,7 +57,7 @@ manifest:
     - name: zephyr
       remote: level
       repo-path: sdk-zephyr
-      revision: level-v2.7.99-ncs1
+      revision: level-zephyr
       import:
         # In addition to the zephyr repository itself, NCS also
         # imports the contents of zephyr/west.yml at the above
