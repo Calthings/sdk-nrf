@@ -31,6 +31,8 @@ manifest:
       url-base: https://github.com/NordicSemiconductor
     - name: memfault
       url-base: https://github.com/memfault
+    - name: level
+      url-base: https://github.com/Calthings
 
   # If not otherwise specified, the projects below should be obtained
   # from the ncs remote.
@@ -49,8 +51,10 @@ manifest:
     # https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/introduction/index.html
     # https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/guides/modules.html
     - name: zephyr
+      remote: level
       repo-path: sdk-zephyr
-      revision: v3.0.99-ncs1
+      #revision: v3.0.99-ncs1
+      revision: level-v3.0.99-ncs1
       import:
         # In addition to the zephyr repository itself, NCS also
         # imports the contents of zephyr/west.yml at the above
@@ -177,7 +181,9 @@ manifest:
       groups:
       - nrf5340_audio
     - name: openthread
+      remote: level
       repo-path: sdk-openthread
+      revision: level-v2.0.1
       path: modules/lib/openthread
       revision: v2.0.1
 
