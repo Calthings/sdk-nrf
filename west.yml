@@ -183,9 +183,8 @@ manifest:
     - name: openthread
       remote: level
       repo-path: sdk-openthread
-      revision: level-v2.0.1
+      revision: level-v2.0-branch--
       path: modules/lib/openthread
-      revision: v2.0.1
 
   # West-related configuration for the nrf repository.
   self:
