@@ -32,7 +32,7 @@ manifest:
     - name: memfault
       url-base: https://github.com/memfault
     - name: level
-      url-base: https://github.com/Calthings
+      url-base: https://github.com/LevelHome
 
   # If not otherwise specified, the projects below should be obtained
   # from the ncs remote.
@@ -53,7 +53,7 @@ manifest:
     - name: zephyr
       remote: level
       repo-path: sdk-zephyr
-      revision: v3.1.99-ncs1-1
+      revision: level-v3.1.99-ncs1-1
       import:
         # In addition to the zephyr repository itself, NCS also
         # imports the contents of zephyr/west.yml at the above
