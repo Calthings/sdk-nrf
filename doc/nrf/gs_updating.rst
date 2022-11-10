@@ -24,7 +24,7 @@ Updating the repositories
 Updating in |VSC|
 =================
 
-The |VSC| extension lets you update the associated |NCS| repositories within the :guilabel:`Source Control` panel.
+The |nRFVSC| lets you update the associated |NCS| repositories within the :guilabel:`Source Control View`.
 For detailed instructions, see the `West integration`_ section of the extension's documentation.
 
 Updating in Toolchain Manager
@@ -90,18 +90,18 @@ To switch to the latest state of development, enter the following commands::
 
 .. _gs_updating_vsc:
 
-Updating |VSC|
-**************
+Updating |nRFVSC|
+*****************
 
-Visual Studio Code checks for extension updates and automatically installs them when they are available.
-After an extension is updated, VS Code prompts you to reload the application.
+|VSC| checks for extension updates and automatically installs them when they are available.
+After an extension is updated, |VSC| prompts you to reload the application.
 
 If you disabled automatic updates:
 
-1. Open the :guilabel:`Extensions` tab and locate the |VSC| extension.
+1. Open the :guilabel:`Extensions` tab and locate the |nRFVSC|.
 
 #. The :guilabel:`Update` button appears when an update is available.
-   Click on the button to install the update.
+   Click the button to install the update.
 
 .. _toolchain_update:
 
@@ -198,7 +198,7 @@ To change the remotes, complete the following steps:
 
    a. Visit your personal fork in a browser.
       For example, to rename the fw-nrfconnect-nrf repository, access your fork on GitHub (``https://github.com/<username>/fw-nrfconnect-nrf``, where *<username>* is your GitHub account name).
-   #. Switch to the :guilabel:`Settings` tab and edit the name in the :guilabel:`Repository name` field to ``sdk-nrf``.
+   #. Switch to the :guilabel:`Settings` tab and edit the name in the **Repository name** field to ``sdk-nrf``.
 
 #. Rename the remotes:
 

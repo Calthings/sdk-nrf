@@ -128,7 +128,7 @@ static bool ble_enable_opt_cb(char *opt)
 	} else if (strcmp(opt, "1") == 0) {
 		cmd = BLE_CTRL_ENABLE;
 	} else {
-		LOG_WRN("Unrecognized ble_enable_opt: %s", log_strdup(opt));
+		LOG_WRN("Unrecognized ble_enable_opt: %s", opt);
 		return false;
 	}
 
@@ -453,6 +453,8 @@ static bool app_event_handler(const struct app_event_header *aeh)
 		if (check_state(event, MODULE_ID(main), MODULE_STATE_READY)) {
 			settings_init();
 		}
+
+		return false;
 	}
 
 	/* If event is unhandled, unsubscribe. */

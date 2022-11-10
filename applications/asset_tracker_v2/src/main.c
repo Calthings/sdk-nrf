@@ -14,6 +14,7 @@
 #endif /* CONFIG_NRF_MODEM_LIB */
 #include <zephyr/sys/reboot.h>
 #include <net/lwm2m_client_utils_fota.h>
+#include <net/nrf_cloud.h>
 
 #if defined(CONFIG_NRF_CLOUD_AGPS) || defined(CONFIG_NRF_CLOUD_PGPS)
 #include <net/nrf_cloud_agps.h>
@@ -78,19 +79,34 @@ static enum sub_state_type {
 /* Internal copy of the device configuration. */
 static struct cloud_data_cfg app_cfg;
 
+/* Variable that keeps track whether modem static data has been successfully sampled by the
+ * modem module. Modem static data does not change and only needs to be sampled and sent to cloud
+ * once.
+ */
+static bool modem_static_sampled;
+
 /* Timer callback used to signal when timeout has occurred both in active
  * and passive mode.
  */
 static void data_sample_timer_handler(struct k_timer *timer);
 
-/* Timer callback used to signal when the application is expecting movement to trigger the next
- * sample request.
- */
-static void waiting_for_movement_handler(struct k_timer *timer);
+/* Timer callback used to reset the activity trigger flag */
+static void movement_resolution_timer_handler(struct k_timer *timer);
 
 /* Application module message queue. */
 #define APP_QUEUE_ENTRY_COUNT		10
 #define APP_QUEUE_BYTE_ALIGNMENT	4
+
+/* Data fetching timeouts */
+#define DATA_FETCH_TIMEOUT_DEFAULT 2
+/* Use a timeout of 11 seconds to accommodate for neighbour cell measurements
+ * that can take up to 10.24 seconds.
+ */
+#define DATA_FETCH_TIMEOUT_NEIGHBORHOOD_SEARCH 11
+
+/* Flag to prevent multiple activity events within one movement resolution cycle */
+static bool activity_triggered = true;
+static bool inactivity_triggered = true;
 
 K_MSGQ_DEFINE(msgq_app, sizeof(struct app_msg_data), APP_QUEUE_ENTRY_COUNT,
 	      APP_QUEUE_BYTE_ALIGNMENT);
@@ -106,7 +122,7 @@ K_TIMER_DEFINE(movement_timeout_timer, data_sample_timer_handler, NULL);
  * lower power consumption by limiting how often GNSS search is performed and
  * data is sent on air.
  */
-K_TIMER_DEFINE(movement_resolution_timer, waiting_for_movement_handler, NULL);
+K_TIMER_DEFINE(movement_resolution_timer, movement_resolution_timer_handler, NULL);
 
 /* Module data structure to hold information of the application module, which
  * opens up for using convenience functions available for modules.
@@ -116,6 +132,18 @@ static struct module_data self = {
 	.msg_q = &msgq_app,
 	.supports_shutdown = true,
 };
+
+#if defined(CONFIG_NRF_MODEM_LIB)
+NRF_MODEM_LIB_ON_INIT(asset_tracker_init_hook, on_modem_lib_init, NULL);
+
+/* Initialized to value different than success (0) */
+static int modem_lib_init_result = -1;
+
+static void on_modem_lib_init(int ret, void *ctx)
+{
+	modem_lib_init_result = ret;
+}
+#endif /* CONFIG_NRF_MODEM_LIB */
 
 /* Convenience functions used in internal state handling. */
 static char *state2str(enum state_type new_state)
@@ -207,7 +235,7 @@ static void lwm2m_update_modem_fota_counter(void)
 static void handle_nrf_modem_lib_init_ret(void)
 {
 #if defined(CONFIG_NRF_MODEM_LIB)
-	int ret = nrf_modem_lib_get_init_ret();
+	int ret = modem_lib_init_result;
 
 	/* Handle return values relating to modem firmware update */
 	switch (ret) {
@@ -235,6 +263,11 @@ static void handle_nrf_modem_lib_init_ret(void)
 		LOG_ERR("nRF modem lib initialization failed, error: %d", ret);
 		break;
 	}
+
+#if defined(CONFIG_NRF_CLOUD_FOTA)
+	/* Ignore return value, rebooting below */
+	(void)nrf_cloud_fota_pending_job_validate(NULL);
+#endif
 
 	LOG_WRN("Rebooting...");
 	LOG_PANIC();
@@ -365,10 +398,11 @@ static void data_sample_timer_handler(struct k_timer *timer)
 	SEND_EVENT(app, APP_EVT_DATA_GET_ALL);
 }
 
-static void waiting_for_movement_handler(struct k_timer *timer)
+static void movement_resolution_timer_handler(struct k_timer *timer)
 {
 	ARG_UNUSED(timer);
-	SEND_EVENT(app, APP_EVT_ACTIVITY_DETECTION_ENABLE);
+	activity_triggered = false;
+	inactivity_triggered = false;
 }
 
 /* Static module functions. */
@@ -402,29 +436,30 @@ static void active_mode_timers_start_all(void)
 
 	k_timer_stop(&movement_resolution_timer);
 	k_timer_stop(&movement_timeout_timer);
-
-	SEND_EVENT(app, APP_EVT_ACTIVITY_DETECTION_DISABLE);
 }
 
 static void data_get(void)
 {
-	static bool first = true;
 	struct app_module_event *app_module_event = new_app_module_event();
 	size_t count = 0;
 
 	/* Set a low sample timeout. If GNSS is requested, the sample timeout will be increased to
-	 * accommodate the GNSS timeout. Use 2 seconds to accommodate for
-	 * neighbour cell measurements that usually takes a few seconds.
+	 * accommodate the GNSS timeout.
 	 */
-	app_module_event->timeout = 2;
+	app_module_event->timeout = DATA_FETCH_TIMEOUT_DEFAULT;
 
 	/* Specify which data that is to be included in the transmission. */
 	app_module_event->data_list[count++] = APP_DATA_MODEM_DYNAMIC;
 	app_module_event->data_list[count++] = APP_DATA_BATTERY;
 	app_module_event->data_list[count++] = APP_DATA_ENVIRONMENTAL;
 
-	if (IS_ENABLED(CONFIG_APP_REQUEST_NEIGHBOR_CELLS_DATA) && !app_cfg.no_data.neighbor_cell) {
+	if (!modem_static_sampled) {
+		app_module_event->data_list[count++] = APP_DATA_MODEM_STATIC;
+	}
+
+	if (!app_cfg.no_data.neighbor_cell) {
 		app_module_event->data_list[count++] = APP_DATA_NEIGHBOR_CELLS;
+		app_module_event->timeout = DATA_FETCH_TIMEOUT_NEIGHBORHOOD_SEARCH;
 	}
 
 	/* The reason for having at least 75 seconds sample timeout when
@@ -450,20 +485,9 @@ static void data_get(void)
 	 * to let the GNSS module finish ongoing searches before data is sent to cloud.
 	 */
 
-	if (first) {
-		if (IS_ENABLED(CONFIG_APP_REQUEST_GNSS_ON_INITIAL_SAMPLING) && request_gnss() &&
-		    !app_cfg.no_data.gnss) {
-			app_module_event->data_list[count++] = APP_DATA_GNSS;
-			app_module_event->timeout = MAX(app_cfg.gnss_timeout + 15, 75);
-		}
-
-		app_module_event->data_list[count++] = APP_DATA_MODEM_STATIC;
-		first = false;
-	} else {
-		if (request_gnss() && !app_cfg.no_data.gnss) {
-			app_module_event->data_list[count++] = APP_DATA_GNSS;
-			app_module_event->timeout = MAX(app_cfg.gnss_timeout + 15, 75);
-		}
+	if (request_gnss() && !app_cfg.no_data.gnss) {
+		app_module_event->data_list[count++] = APP_DATA_GNSS;
+		app_module_event->timeout = MAX(app_cfg.gnss_timeout + 15, 75);
 	}
 
 	/* Set list count to number of data types passed in app_module_event. */
@@ -521,11 +545,18 @@ void on_sub_state_passive(struct app_msg_data *msg)
 	}
 
 	if ((IS_EVENT(msg, ui, UI_EVT_BUTTON_DATA_READY)) ||
-	    (IS_EVENT(msg, sensor, SENSOR_EVT_MOVEMENT_DATA_READY))) {
-
+	    (IS_EVENT(msg, sensor, SENSOR_EVT_MOVEMENT_ACTIVITY_DETECTED)) ||
+	    (IS_EVENT(msg, sensor, SENSOR_EVT_MOVEMENT_IMPACT_DETECTED))) {
 		if (IS_EVENT(msg, ui, UI_EVT_BUTTON_DATA_READY) &&
 		    msg->module.ui.data.ui.button_number != 2) {
 			return;
+		}
+
+		if (IS_EVENT(msg, sensor, SENSOR_EVT_MOVEMENT_ACTIVITY_DETECTED)) {
+			if (activity_triggered) {
+				return;
+			}
+			activity_triggered = true;
 		}
 
 		/* Trigger a sample request if button 2 has been pushed on the DK or activity has
@@ -536,6 +567,16 @@ void on_sub_state_passive(struct app_msg_data *msg)
 		if (k_timer_remaining_get(&movement_resolution_timer) == 0) {
 			data_sample_timer_handler(NULL);
 			passive_mode_timers_start_all();
+		}
+	}
+	if (IS_EVENT(msg, sensor, SENSOR_EVT_MOVEMENT_INACTIVITY_DETECTED)
+	    && k_timer_remaining_get(&movement_resolution_timer) != 0) {
+		/* Trigger a sample request if there has been inactivity after
+		 * activity was triggered.
+		 */
+		if (!inactivity_triggered) {
+			data_sample_timer_handler(NULL);
+			inactivity_triggered = true;
 		}
 	}
 }
@@ -568,12 +609,16 @@ static void on_all_events(struct app_msg_data *msg)
 		SEND_SHUTDOWN_ACK(app, APP_EVT_SHUTDOWN_READY, self.id);
 		state_set(STATE_SHUTDOWN);
 	}
+
+	if (IS_EVENT(msg, modem, MODEM_EVT_MODEM_STATIC_DATA_READY)) {
+		modem_static_sampled = true;
+	}
 }
 
 void main(void)
 {
 	int err;
-	struct app_msg_data msg;
+	struct app_msg_data msg = { 0 };
 
 	if (!IS_ENABLED(CONFIG_LWM2M_CARRIER)) {
 		handle_nrf_modem_lib_init_ret();

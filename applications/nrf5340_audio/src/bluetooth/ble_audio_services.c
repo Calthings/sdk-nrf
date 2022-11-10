@@ -4,19 +4,18 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include "ble_audio_services.h"
+
 #include <zephyr/kernel.h>
 #include <zephyr/types.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/audio/vcs.h>
-#include <zephyr/bluetooth/audio/mics.h>
+
 #include "macros_common.h"
-#include "ble_acl_common.h"
-#include "ble_audio_services.h"
 #include "hw_codec.h"
 
-#define LOG_LEVEL CONFIG_LOG_AUDIO_SERVICES_LEVEL
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(ble_audio_services);
+LOG_MODULE_REGISTER(ble_audio_services, CONFIG_LOG_AUDIO_SERVICES_LEVEL);
 
 #define VOLUME_DEFAULT 195
 #define VOLUME_STEP 16
@@ -72,7 +71,7 @@ static void vcs_state_cb_handler(struct bt_vcs *vcs, int err, uint8_t volume, ui
 #if (CONFIG_BT_VCS_CLIENT)
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		if (vcs == vcs_client_peer[i]) {
-			LOG_INF("VCS state from remote device %d:", i);
+			LOG_DBG("VCS state from remote device %d:", i);
 		} else {
 			ret = ble_vcs_client_remote_set(i);
 			/* If remote peer hasn't been connected before,
@@ -114,7 +113,7 @@ static void vcs_flags_cb_handler(struct bt_vcs *vcs, int err, uint8_t flags)
 	if (err) {
 		LOG_ERR("VCS flag callback error: %d", err);
 	} else {
-		LOG_INF("Volume flags = 0x%01X", flags);
+		LOG_DBG("Volume flags = 0x%01X", flags);
 	}
 }
 

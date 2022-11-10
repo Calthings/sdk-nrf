@@ -13,7 +13,28 @@ The device works as a Matter accessory device, meaning it can be paired and cont
 You can use this application as a reference for creating your own application.
 
 .. note::
-    The Matter protocol is in an early development stage and must be treated as an experimental feature.
+   The Thingy:53 Matter weather station application featured in the |NCS| v2.1.1 release participated in Matter Specification Validation Event (SVE) and successfully passed all required test cases to be considered as a device compliant with Matter 1.0.
+   For this reason, the |NCS| v2.1.1 release version of the application includes additional `Certification files for Matter SVE 1.0`_.
+
+Requirements
+************
+
+The application supports the following development kits:
+
+.. table-from-sample-yaml::
+
+To commission the weather station device and control it remotely through a Thread network, you also need a Matter controller device :ref:`configured on PC or smartphone <ug_matter_configuring>`.
+This requires additional hardware depending on your setup.
+The recommended way of getting measurement values is using the mobile Matter controller application that comes with a graphical interface, performs measurements automatically and visualizes the data.
+
+To program a Thingy:53 device where the preprogrammed MCUboot bootloader has been erased, you need the external J-Link programmer.
+If you have an nRF5340 DK that has an onboard J-Link programmer, you can also use it for this purpose.
+
+If the Thingy:53 is programmed with Thingy:53-compatible sample or application, you can also update the firmware using MCUboot's serial recovery or DFU over Bluetooth LE.
+See :ref:`thingy53_app_guide` for details.
+
+.. note::
+    |matter_gn_required_note|
 
 Overview
 ********
@@ -48,6 +69,18 @@ If the Bluetooth LE advertising times out, you can re-enable it manually using *
 Additionally, the controller must get the commissioning information from the Matter accessory device and provision the device into the network.
 For details, see the `Testing`_ section.
 
+.. _matter_weather_station_cert_files:
+
+Certification files for Matter SVE 1.0
+======================================
+
+The |NCS| v2.1.1 version of the application contains a dedicated :file:`certification` directory with information useful for getting to know the Matter certification process:
+
+* :file:`factory_data` directory - This directory contains a generated example of the factory data that was originally used for the weather station Matter certification.
+* :file:`PICS` directory - This directory contains Protocol Implementation Conformance Statement (PICS) that was originally used for the weather station Matter certification.
+  The PICS is a set of XML files that describe the Matter features supported by a specific device.
+* :file:`overlay-factory_data_build.conf` - This overlay file contains examples of configuration options that can be used to generate a new set of Matter device factory data.
+
 .. _matter_weather_station_app_build_types:
 
 Matter weather station build types
@@ -68,31 +101,17 @@ If a board has other configuration files, for example associated with partition 
 Before you start testing the application, you can select one of the build types supported by Matter weather station application, depending on the building method.
 This application supports the following build types:
 
-* ``debug`` -- Debug version of the application - can be used to enable additional features for verifying the application behavior, such as logs or command-line shell.
-* ``release`` -- Release version of the application - can be used to enable only the necessary application functionalities to optimize its performance.
+* ``debug`` - Debug version of the application. You can use this version to enable additional features for verifying the application behavior, such as logs or command-line shell.
+* ``release`` - Release version of the application. You can use this version to enable only the necessary application functionalities to optimize its performance.
+* ``factory_data`` - Release version of the application that has factory data storage enabled.
+  You can use this version to enable reading factory data necessary for Matter certification from a separate partition in the device non-volatile memory.
+  This way, you can read information such as product information, keys, and certificates.
+  See `Using certification factory data`_ to learn how to put factory data into device's storage.
+  To learn more about factory data read :doc:`matter:nrfconnect_factory_data_configuration` page in the Matter documentation.
 
 .. note::
     `Selecting a build type`_ is optional.
     The ``debug`` build type is used by default if no build type is explicitly selected.
-
-Requirements
-************
-
-The application supports the following development kits:
-
-.. table-from-sample-yaml::
-
-To commission the weather station device and control it remotely through a Thread network, you also need a Matter controller device :ref:`configured on PC or smartphone <ug_matter_configuring>` (which requires additional hardware depending on which setup you choose).
-The recommended way of getting measurement values is using the mobile Matter controller application that comes with a neat graphical interface, performs measurements automatically and visualizes the data.
-
-To program a Thingy:53 device where the preprogrammed MCUboot bootloader has been erased, you need the external J-Link programmer.
-If you own an nRF5340 DK that has an onboard J-Link programmer, you can also use it for this purpose.
-
-If the Thingy:53 is programmed with Thingy:53-compatible sample or application, then you can also update the firmware using MCUboot's serial recovery or DFU over Bluetooth LE.
-See :ref:`thingy53_app_guide` for details.
-
-.. note::
-    |matter_gn_required_note|
 
 User interface
 **************
@@ -174,6 +193,42 @@ The ``build_thingy53_nrf5340_cpuapp`` parameter specifies the output directory f
 
       File not found: ./ncs/nrf/applications/matter_weather_station/configuration/thingy53_nrf5340_cpuapp/prj_shell.conf
 
+Using certification factory data
+================================
+
+This application contains `Certification files for Matter SVE 1.0`_, including the factory data files.
+You can program these files for example to compare your certification test data with the factory data that passed the certification event.
+
+You can use either the pre-prepared factory data that were used for Matter SVE 1.0 or you can generate new factory data.
+
+Programming pre-prepared factory data
+-------------------------------------
+
+Before programming pre-prepared factory data, you must build and program the application with the factory data build type selected (see `Matter weather station build types`_).
+You can program the pre-prepared :file:`certification/factory_data/factory_data.hex` file with the following command:
+
+.. parsed-literal::
+   :class: highlight
+
+   nrfjprog --coprocessor CP_APPLICATION --program factory_data.hex --reset
+
+Generating new factory data
+---------------------------
+
+Instead of using the pre-prepared factory data set, you can also generate new one when building for the target board by invoking the following command:
+
+.. parsed-literal::
+   :class: highlight
+
+   west build -b thingy53_nrf5340_cpuapp -- -DCONF_FILE=prj_factory_data.conf -DOVERLAY_CONFIG="../../certification/overlay-factory_data_build.conf"
+
+After building the target, the generated :file:`factory_data.hex` file will be merged with the application target HEX file, so you can use the regular command to flash it to the device:
+
+.. parsed-literal::
+   :class: highlight
+
+   west flash --erase
+
 Testing
 =======
 
@@ -202,16 +257,16 @@ After programming the application, perform the following steps to test the Matte
 #. Read sensor measurements in CHIP Tool for Android:
 
    a. In the CHIP Tool for Android application main menu, tap the :guilabel:`SENSOR CLUSTERS` button to open the sensor measurements section.
-      This section contains text boxes to enter :guilabel:`Device ID` and :guilabel:`Endpoint ID`, a drop-down menu with available measurements and two buttons, :guilabel:`READ` and :guilabel:`WATCH`.
+      This section contains text boxes to enter **Device ID** and **Endpoint ID**, a drop-down menu with available measurements and two buttons, :guilabel:`READ` and :guilabel:`WATCH`.
 
       .. figure:: /images/chiptool_sensor_cluster.gif
          :alt: Sensor cluster section selection
 
          Sensor cluster section selection
 
-      On this image, :guilabel:`Device ID` has the value ``5`` and :guilabel:`Endpoint ID` has the value ``1``.
+      On this image, **Device ID** has the value ``5`` and **Endpoint ID** has the value ``1``.
    #. Select one of the available measurement types from the drop-down menu.
-   #. Enter one of the following values for :guilabel:`Endpoint ID`, depending on the selected measurement type:
+   #. Enter one of the following values for **Endpoint ID**, depending on the selected measurement type:
 
       * 1 - Temperature measurement
       * 2 - Relative humidity measurement
@@ -232,7 +287,7 @@ After programming the application, perform the following steps to test the Matte
          Continuous temperature measurement watch
 
       The vertical axis represents the measurement values and the horizontal axis represents the current time.
-   #. Change the displayed measurement by selecting a different measurement type from the drop-down list and entering the corresponding :guilabel:`Endpoint ID` value.
+   #. To change the displayed measurement, select a different measurement type from the drop-down list and enter the corresponding **Endpoint ID** value.
 
       .. figure:: /images/chiptool_relative_humidity.gif
          :alt: Relative humidity measurement type selection

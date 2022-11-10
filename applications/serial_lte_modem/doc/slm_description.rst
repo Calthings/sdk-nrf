@@ -25,7 +25,7 @@ The application supports the following development kits:
 
 .. table-from-sample-yaml::
 
-.. include:: /includes/tfm_spm_thingy91.txt
+.. include:: /includes/tfm.txt
 
 Configuration
 *************
@@ -88,17 +88,33 @@ CONFIG_SLM_START_SLEEP - Enter sleep on startup
 
 CONFIG_SLM_WAKEUP_PIN - Interface GPIO to exit from sleep or idle
    This option specifies which interface GPIO to use for exiting sleep or idle mode.
-   By default, **P0.6** (Button 1 on the nRF9160 DK) is used when :ref:`CONFIG_SLM_CONNECT_UART_0 <CONFIG_SLM_CONNECT_UART_0>` is selected, and **P0.31** is used when :ref:`CONFIG_SLM_CONNECT_UART_2 <CONFIG_SLM_CONNECT_UART_2>` is selected.
+   It is set by default as follows:
 
-   **P0.26** (Multi-function button on Thingy:91) is used when the target is Thingy:91.
+   * On the nRF9160 DK:
+
+     * **P0.6** (Button 1 on the nRF9160 DK) is used when :ref:`CONFIG_SLM_CONNECT_UART_0 <CONFIG_SLM_CONNECT_UART_0>` is selected.
+     * **P0.31** is used when :ref:`CONFIG_SLM_CONNECT_UART_2 <CONFIG_SLM_CONNECT_UART_2>` is selected.
+
+   * On Thingy:91, **P0.26** (Multi-function button on Thingy:91) is used.
+
+   .. note::
+      This pin is used as input GPIO and configured as *Active Low*.
+      By default, the application pulls up this GPIO.
 
 .. _CONFIG_SLM_INDICATE_PIN:
 
-CONFIG_SLM_INDICATE_PIN - Interface GPIO to indicate data available or unexpected reset
-   This option specifies which interface GPIO to use for indicating data available or unexpected reset.
-   By default, **P0.2** (LED 1 on the nRF9160 DK) is used when :ref:`CONFIG_SLM_CONNECT_UART_0 <CONFIG_SLM_CONNECT_UART_0>` is selected, and **P0.30** is used when :ref:`CONFIG_SLM_CONNECT_UART_2 <CONFIG_SLM_CONNECT_UART_2>` is selected.
+CONFIG_SLM_INDICATE_PIN - Interface GPIO to indicate data available or unsolicited event notifications
+   This option specifies which interface GPIO to use for indicating data available or unsolicited event notifications from the modem.
+   On the nRF9160 DK, it is set by default as follows:
+
+   * **P0.2** (LED 1 on the nRF9160 DK) is used when :ref:`CONFIG_SLM_CONNECT_UART_0 <CONFIG_SLM_CONNECT_UART_0>` is selected.
+   * **P0.30** is used when :ref:`CONFIG_SLM_CONNECT_UART_2 <CONFIG_SLM_CONNECT_UART_2>` is selected.
 
    It is not defined when the target is Thingy:91.
+
+   .. note::
+      This pin is used as output GPIO and configured as *Active Low*.
+      By default, the application sets this GPIO as *Inactive High*.
 
 .. _CONFIG_SLM_INDICATE_TIME:
 
@@ -307,7 +323,7 @@ Building and running
 
 .. |sample path| replace:: :file:`applications/serial_lte_modem`
 
-.. include:: /includes/thingy91_build_and_run.txt
+.. include:: /includes/build_and_run_ns.txt
 
 .. _slm_connecting_9160dk:
 
@@ -372,7 +388,35 @@ Connecting with an external MCU
 If you run your user application on an external MCU (for example, an nRF52 Series development kit), you can control the modem on nRF9160 directly from the application.
 See the `nRF52 client for Serial LTE Modem application`_ repository for a sample implementation of such an application.
 
-To connect with an external MCU, set the :kconfig:option:`CONFIG_UART_2_NRF_HW_ASYNC_TIMER` and :ref:`CONFIG_SLM_CONNECT_UART_2 <CONFIG_SLM_CONNECT_UART_2>` configuration options in the Serial LTE Modem application configuration.
+To connect with an external MCU using UART_2, change the configuration files for the default board as follows:
+
+* In the :file:`nrf9160dk_nrf9160_ns.conf` file::
+
+   # Use UART_0 (when working with PC terminal)
+   # unmask the following config
+   #CONFIG_SLM_CONNECT_UART_0=y
+   #CONFIG_UART_0_NRF_HW_ASYNC_TIMER=2
+   #CONFIG_UART_0_NRF_HW_ASYNC=y
+   #CONFIG_SLM_WAKEUP_PIN=6
+   #CONFIG_SLM_INDICATE_PIN=2
+
+   # Use UART_2 (when working with external MCU)
+   # unmask the following config
+   CONFIG_SLM_CONNECT_UART_2=y
+   CONFIG_UART_2_NRF_HW_ASYNC_TIMER=2
+   CONFIG_UART_2_NRF_HW_ASYNC=y
+   CONFIG_SLM_WAKEUP_PIN=31
+   CONFIG_SLM_INDICATE_PIN=30
+
+
+* In the :file:`nrf9160dk_nrf9160_ns.overlay` file::
+
+   &uart0 {
+      status = "disabled";
+
+   &uart2 {
+      status = "okay";
+
 
 The following table shows how to connect an nRF52 Series development kit to the nRF9160 DK to be able to communicate through UART:
 
@@ -482,7 +526,6 @@ It uses the following `sdk-nrfxlib`_ libraries:
 
 * :ref:`nrfxlib:nrf_modem`
 
-In addition, it uses the following secure firmware components:
+In addition, it uses the following secure firmware component:
 
-* :ref:`secure_partition_manager`
 * :ref:`Trusted Firmware-M <ug_tfm>`

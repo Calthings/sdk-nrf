@@ -158,7 +158,7 @@ static void convert_number_to_str(uint8_t *number, uint8_t number_length, char *
 
 		if (number_value >= 10) {
 			LOG_WRN("Single number in phone number is higher than 10: "
-				"index=%d, number_value=%d, lower semi-octet",
+				"index=%d, number_value=%d, higher semi-octet",
 				i, number_value);
 		}
 		sprintf(str_number + hex_str_index, "%d", number_value);
@@ -862,7 +862,7 @@ int sms_deliver_pdu_parse(const char *pdu, struct sms_data *data)
 		header->time.hour,
 		header->time.minute,
 		header->time.second);
-	LOG_DBG("Text:   '%s'", log_strdup(data->payload));
+	LOG_DBG("Text:   '%s'", (char *)data->payload);
 
 	LOG_DBG("Length: %d", data->payload_len);
 

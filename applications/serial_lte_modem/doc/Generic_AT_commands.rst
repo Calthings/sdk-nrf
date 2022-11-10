@@ -144,10 +144,13 @@ The ``<shutdown_mode>`` parameter accepts only the following integer values:
   The development kit can be made to exit idle using the :ref:`CONFIG_SLM_WAKEUP_PIN <CONFIG_SLM_WAKEUP_PIN>`.
   If the :ref:`CONFIG_SLM_INDICATE_PIN <CONFIG_SLM_INDICATE_PIN>` is defined, SLM toggle this GPIO when there is data for MCU.
   MCU could in turn make SLM to exit idle by :ref:`CONFIG_SLM_WAKEUP_PIN <CONFIG_SLM_WAKEUP_PIN>`.
-  The data is buffered during the idle status and is sent to MCU after exiting the ilde status.
+  The data is buffered during the idle status and sent to MCU after exiting the idle status.
 
 .. note::
-   This parameter does not accept ``0`` anymore.
+
+   * This parameter does not accept ``0`` anymore.
+   * If the modem is on, entering Sleep mode sends a ``+CFUN=0`` command to the modem, which causes a non-volatile memory (NVM) write.
+     Take the NVM wear into account, or put the modem in flight mode by issuing a ``AT+CFUN=4`` before Sleep mode.
 
 Examples
 ~~~~~~~~
@@ -158,6 +161,16 @@ Examples
    ERROR
 
 ::
+
+   AT#XSLEEP=1
+   OK
+
+See the following for an example of when the modem is on:
+
+::
+
+   AT+CFUN=4
+   OK
 
    AT#XSLEEP=1
    OK
@@ -243,7 +256,8 @@ It accepts the following values:
 
 Its default value is ``115200``.
 When not specified, it is set to the last value set for the variable and stored in the flash memory.
-If there is no value stored for the variable, it is set to its default value.If not specified , will use previous value.
+If there is no value stored for the variable, it is set to its default value.
+If not specified, the previous value is used.
 
 The ``<hwfc>`` parameter accepts the following integer values:
 

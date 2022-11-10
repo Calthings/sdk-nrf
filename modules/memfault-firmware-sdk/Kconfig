@@ -76,6 +76,7 @@ config MEMFAULT_NCS_HW_VERSION
 config MEMFAULT_NCS_FW_TYPE
 	string "Firmware type"
 	default "nrf91ns-fw" if BOARD_NRF9160DK_NRF9160_NS || BOARD_THINGY91_NRF9160_NS
+	default "nrf-ble-fw" if BT_MDS
 	help
 	  Firmware type running on the board
 
@@ -147,10 +148,16 @@ config MEMFAULT_NCS_LTE_METRICS
 	  Capture LTE metrics while the application is running. Supported
 	  metrics are time to connect and number of connection establishments.
 
+config MEMFAULT_NCS_BT_METRICS
+	bool "Collect BT metrics"
+	depends on BT
+	help
+	  Collect metrics related to the Bluetooth stack in background while application is running.
+
 config MEMFAULT_NCS_USE_DEFAULT_METRICS
 	bool
 	select MEMFAULT_METRICS_EXTRA_DEFS_FILE
-	default y if (MEMFAULT_NCS_STACK_METRICS || MEMFAULT_NCS_LTE_METRICS)
+	default y if (MEMFAULT_NCS_STACK_METRICS || MEMFAULT_NCS_LTE_METRICS || MEMFAULT_NCS_BT_METRICS)
 
 config MEMFAULT_NCS_INTERNAL_FLASH_BACKED_COREDUMP
 	bool "Save coredump to internal flash instead of RAM"
@@ -169,7 +176,7 @@ config MEMFAULT_NCS_FLASH_REGION_SIZE
 
 partition=MEMFAULT_STORAGE
 partition-size=0x10000
-source "${ZEPHYR_BASE}/../nrf/subsys/partition_manager/Kconfig.template.partition_size"
+source "${ZEPHYR_BASE}/../nrf/subsys/partition_manager/Kconfig.template.partition_config"
 endif # MEMFAULT_NCS_INTERNAL_FLASH_BACKED_COREDUMP
 
 # We want to encourage the use of a dedicated workqueue to upload data periodically,
@@ -186,6 +193,5 @@ module = MEMFAULT_NCS
 module-dep = LOG
 module-str = Memfault NCS module
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
-
 
 endif # MEMFAULT

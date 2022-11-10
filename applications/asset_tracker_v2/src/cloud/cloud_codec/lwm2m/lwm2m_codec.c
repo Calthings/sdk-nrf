@@ -14,101 +14,24 @@
 #include <lwm2m_resource_ids.h>
 #include <net/lwm2m.h>
 #include <net/lwm2m_client_utils.h>
+#include <net/lwm2m_client_utils_location.h>
 #include <date_time.h>
+
+#include "lwm2m_codec_defines.h"
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(cloud_codec, CONFIG_CLOUD_CODEC_LOG_LEVEL);
 
-/* LwM2M read-write flag. */
-#define LWM2M_RES_DATA_FLAG_RW 0
-
-/* Location object RIDs. */
-#define LATITUDE_RID		0
-#define LONGITUDE_RID		1
-#define ALTITUDE_RID		2
-#define RADIUS_RID		3
-#define LOCATION_TIMESTAMP_RID	5
-#define SPEED_RID		6
-
-/* Connectivity monitoring object RIDs. */
-#define NETWORK_BEARER_ID		0
-#define AVAIL_NETWORK_BEARER_ID		1
-#define RADIO_SIGNAL_STRENGTH		2
-#define IP_ADDRESSES			4
-#define APN				7
-#define CELLID				8
-#define SMNC				9
-#define SMCC				10
-#define LAC				12
-
-/* Device object RIDs. */
-#define FIRMWARE_VERSION_RID		3
-#define SOFTWARE_VERSION_RID		19
-#define DEVICE_SERIAL_NUMBER_ID		2
-#define CURRENT_TIME_RID		13
-#define POWER_SOURCE_VOLTAGE_RID	7
-#define MODEL_NUMBER_RID		1
-#define MANUFACTURER_RID		0
-#define HARDWARE_VERSION_RID		18
-
-/* Configuration object RIDs. */
-#define CONFIGURATION_OBJECT_ID		50009
-#define PASSIVE_MODE_RID		0
-#define GNSS_TIMEOUT_RID		1
-#define ACTIVE_WAIT_TIMEOUT_RID		2
-#define MOVEMENT_RESOLUTION_RID		3
-#define MOVEMENT_TIMEOUT_RID		4
-#define ACCELEROMETER_THRESHOLD_RID	5
-#define GNSS_ENABLE_RID			6
-#define NEIGHBOR_CELL_ENABLE_RID	7
-
-/* Location Assistance resource IDs */
-#define LOCATION_ASSIST_OBJECT_ID		   50001
-#define ASSIST_TYPE_RID				   0
-#define AGPS_MASK_RID				   1
-#define ASSISTANCE_REQUEST_TYPE_SINGLECELL_REQUEST 3
-#define ASSISTANCE_REQUEST_TYPE_MULTICELL_REQUEST  4
-
-/* LTE-FDD (LTE-M) bearer & NB-IoT bearer. */
-#define LTE_FDD_BEARER 6U
-#define NB_IOT_BEARER 7U
-
-/* Temperature sensor metadata. */
-#define BME680_TEMP_MIN_RANGE_VALUE -40.0
-#define BME680_TEMP_MAX_RANGE_VALUE 85.0
-#define BME680_TEMP_UNIT "Celsius degrees"
-
-/* Humidity sensor metadata. */
-#define BME680_HUMID_MIN_RANGE_VALUE 0.0
-#define BME680_HUMID_MAX_RANGE_VALUE 100.0
-#define BME680_HUMID_UNIT "%"
-
-/* Pressure sensor metadata. */
-#define BME680_PRESSURE_MIN_RANGE_VALUE 30.0
-#define BME680_PRESSURE_MAX_RANGE_VALUE 110.0
-#define BME680_PRESSURE_UNIT "kPa"
-
-/* Macros used to create A-GPS request mask in location assist object. */
-#define LOCATION_ASSIST_NEEDS_UTC	 BIT(0)
-#define LOCATION_ASSIST_NEEDS_EPHEMERIES BIT(1)
-#define LOCATION_ASSIST_NEEDS_ALMANAC	 BIT(2)
-#define LOCATION_ASSIST_NEEDS_KLOBUCHAR	 BIT(3)
-#define LOCATION_ASSIST_NEEDS_NEQUICK	 BIT(4)
-#define LOCATION_ASSIST_NEEDS_TOW	 BIT(5)
-#define LOCATION_ASSIST_NEEDS_CLOCK	 BIT(6)
-#define LOCATION_ASSIST_NEEDS_LOCATION	 BIT(7)
-#define LOCATION_ASSIST_NEEDS_INTEGRITY	 BIT(8)
-
 /* Some resources does not have designated buffers. Therefore we define those in here. */
 static uint8_t bearers[2] = { LTE_FDD_BEARER, NB_IOT_BEARER };
 static int battery_voltage;
-static int32_t pressure_timestamp;
-static int32_t temperature_timestamp;
-static int32_t humidity_timestamp;
-static int32_t button_timestamp;
+static int32_t pressure_ts;
+static int32_t temperature_ts;
+static int32_t humidity_ts;
+static int32_t button_ts;
 static int64_t current_time;
 
-/* Minimuim and maximum values for the BME680 present on the Thingy:91. */
+/* Minimum and maximum values for the BME680 present on the Thingy:91. */
 static double temp_min_range_val = BME680_TEMP_MIN_RANGE_VALUE;
 static double temp_max_range_val = BME680_TEMP_MAX_RANGE_VALUE;
 static double humid_min_range_val = BME680_HUMID_MIN_RANGE_VALUE;
@@ -116,32 +39,49 @@ static double humid_max_range_val = BME680_HUMID_MAX_RANGE_VALUE;
 static double pressure_min_range_val = BME680_PRESSURE_MIN_RANGE_VALUE;
 static double pressure_max_range_val = BME680_PRESSURE_MAX_RANGE_VALUE;
 
-/* Button object. */
-#define BUTTON1_OBJ_INST_ID 0
-#define BUTTON1_APP_NAME "Push button 1"
-#define BUTTON2_OBJ_INST_ID 1
-#define BUTTON2_APP_NAME "Push button 2"
-
 /* Module event handler.  */
 static cloud_codec_evt_handler_t module_evt_handler;
 
-/* Convenience API used to generate path lists with reference to objects that will be sent. */
-static int object_path_list_add(struct cloud_codec_data *output, const char *path)
+/* Convenience API used to generate path lists with reference to objects.
+ * Strings in the path array are expected to be NULL terminated.
+ */
+static int object_path_list_add(struct cloud_codec_data *output, const char * const path[],
+				size_t path_size)
 {
 	bool path_added = false;
+	uint8_t j = 0;
+
+	if (output == NULL || path == NULL || path_size == 0) {
+		return -EINVAL;
+	}
 
 	for (int i = 0; i < ARRAY_SIZE(output->paths); i++) {
 		if (strcmp(output->paths[i], "\0") == 0) {
-			strncpy(output->paths[i], path, sizeof(output->paths[i]) - 1);
+
+			if ((sizeof(output->paths[i]) - 1) < strlen(path[j])) {
+				LOG_ERR("Path entry is too long");
+				return -EMSGSIZE;
+			}
+
+			strncpy(output->paths[i], path[j], sizeof(output->paths[i]) - 1);
+
 			output->paths[i][sizeof(output->paths[i]) - 1] = '\0';
 			output->valid_object_paths++;
 			path_added = true;
-			break;
+			j++;
+
+			if (j == path_size) {
+				break;
+			}
 		}
 	}
 
-	if (!path_added) {
-		LOG_ERR("Current object path list is full");
+	/* This API can be called multiple times to populate the same path buffer. Due to this we
+	 * also check if all entries in the incoming path[] list was added.
+	 */
+	if (!path_added || (j != path_size)) {
+		LOG_ERR("Current object path list is full, or not all entries in the incoming "
+			"path[] list was added");
 		return -ENOMEM;
 	}
 
@@ -152,6 +92,10 @@ static int object_path_list_add(struct cloud_codec_data *output, const char *pat
 static int config_update_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
 			    uint8_t *data, uint16_t data_len, bool last_block, size_t total_size)
 {
+	/* Because we are dependent on providing all configurations in the
+	 * CLOUD_CODEC_EVT_CONFIG_UPDATE event, all configuration is retrieved whenever the
+	 * configuration object changes.
+	 */
 	ARG_UNUSED(obj_inst_id);
 	ARG_UNUSED(res_id);
 	ARG_UNUSED(res_inst_id);
@@ -194,10 +138,24 @@ static int config_update_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_
 	}
 
 	err = lwm2m_engine_get_float(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
-						ACCELEROMETER_THRESHOLD_RID),
-				     &cfg.accelerometer_threshold);
+				     ACCELEROMETER_ACT_THRESHOLD_RID),
+				     &cfg.accelerometer_activity_threshold);
 	if (err) {
-		LOG_ERR("Failed getting Accelerometer threshold resource value.");
+		LOG_ERR("Failed getting Accelerometer activity threshold resource value.");
+	}
+
+	err = lwm2m_engine_get_float(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+				     ACCELEROMETER_INACT_THRESHOLD_RID),
+				     &cfg.accelerometer_inactivity_threshold);
+	if (err) {
+		LOG_ERR("Failed getting Accelerometer inactivity threshold resource value.");
+	}
+
+	err = lwm2m_engine_get_float(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+				     ACCELEROMETER_INACT_TIMEOUT_RID),
+				     &cfg.accelerometer_inactivity_timeout);
+	if (err) {
+		LOG_ERR("Failed getting Accelerometer inactivity timeout resource value.");
 	}
 
 	/* If the GNSS and neighbor cell entry in the No data structure is set, its disabled in the
@@ -293,42 +251,42 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 	}
 
 	/* Device current time. */
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-						   CURRENT_TIME_RID),
-					&current_time, sizeof(current_time),
-					LWM2M_RES_DATA_FLAG_RW);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
+						  CURRENT_TIME_RID),
+				       &current_time, sizeof(current_time), sizeof(current_time),
+				       LWM2M_RES_DATA_FLAG_RW);
 	if (err) {
 		return err;
 	}
 
 	/* Battery voltage buffer. */
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-						   POWER_SOURCE_VOLTAGE_RID),
-					&battery_voltage, sizeof(battery_voltage),
-					LWM2M_RES_DATA_FLAG_RW);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
+						  POWER_SOURCE_VOLTAGE_RID),
+				       &battery_voltage, sizeof(battery_voltage),
+				       sizeof(battery_voltage), LWM2M_RES_DATA_FLAG_RW);
 	if (err) {
 		return err;
 	}
 
 	/* Sensor timestamps. */
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, TIMESTAMP_RID),
-					&pressure_timestamp, sizeof(pressure_timestamp),
-					LWM2M_RES_DATA_FLAG_RW);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, TIMESTAMP_RID),
+				       &pressure_ts, sizeof(pressure_ts),
+				       sizeof(pressure_ts), LWM2M_RES_DATA_FLAG_RW);
 	if (err) {
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0, TIMESTAMP_RID),
-					&temperature_timestamp, sizeof(temperature_timestamp),
-					LWM2M_RES_DATA_FLAG_RW);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0, TIMESTAMP_RID),
+				       &temperature_ts, sizeof(temperature_ts),
+				       sizeof(temperature_ts), LWM2M_RES_DATA_FLAG_RW);
 	if (err) {
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0,
-						   TIMESTAMP_RID),
-					&humidity_timestamp, sizeof(humidity_timestamp),
-					LWM2M_RES_DATA_FLAG_RW);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0,
+						  TIMESTAMP_RID),
+				       &humidity_ts, sizeof(humidity_ts),
+				       sizeof(humidity_ts), LWM2M_RES_DATA_FLAG_RW);
 	if (err) {
 		return err;
 	}
@@ -346,9 +304,9 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0, SENSOR_UNITS_RID),
-					BME680_TEMP_UNIT, sizeof(BME680_TEMP_UNIT),
-					LWM2M_RES_DATA_FLAG_RO);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0, SENSOR_UNITS_RID),
+				       BME680_TEMP_UNIT, sizeof(BME680_TEMP_UNIT),
+				       sizeof(BME680_TEMP_UNIT), LWM2M_RES_DATA_FLAG_RO);
 	if (err) {
 		return err;
 	}
@@ -368,15 +326,15 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0,
-						   SENSOR_UNITS_RID),
-					BME680_HUMID_UNIT, sizeof(BME680_HUMID_UNIT),
-					LWM2M_RES_DATA_FLAG_RO);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0,
+						  SENSOR_UNITS_RID),
+				       BME680_HUMID_UNIT, sizeof(BME680_HUMID_UNIT),
+				       sizeof(BME680_HUMID_UNIT), LWM2M_RES_DATA_FLAG_RO);
 	if (err) {
 		return err;
 	}
 
-	/* Humidity object. */
+	/* Pressure object. */
 	err = lwm2m_engine_set_float(LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, MIN_RANGE_VALUE_RID),
 				     &pressure_min_range_val);
 	if (err) {
@@ -389,9 +347,9 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, SENSOR_UNITS_RID),
-					BME680_PRESSURE_UNIT, sizeof(BME680_PRESSURE_UNIT),
-					LWM2M_RES_DATA_FLAG_RO);
+	err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, SENSOR_UNITS_RID),
+				       BME680_PRESSURE_UNIT, sizeof(BME680_PRESSURE_UNIT),
+				       sizeof(BME680_PRESSURE_UNIT), LWM2M_RES_DATA_FLAG_RO);
 	if (err) {
 		return err;
 	}
@@ -428,8 +386,22 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 	}
 
 	err = lwm2m_engine_set_float(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
-						ACCELEROMETER_THRESHOLD_RID),
-				     &cfg->accelerometer_threshold);
+						ACCELEROMETER_ACT_THRESHOLD_RID),
+				     &cfg->accelerometer_activity_threshold);
+	if (err) {
+		return err;
+	}
+
+	err = lwm2m_engine_set_float(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+						ACCELEROMETER_INACT_THRESHOLD_RID),
+				     &cfg->accelerometer_inactivity_threshold);
+	if (err) {
+		return err;
+	}
+
+	err = lwm2m_engine_set_float(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+						ACCELEROMETER_INACT_TIMEOUT_RID),
+				     &cfg->accelerometer_inactivity_timeout);
 	if (err) {
 		return err;
 	}
@@ -487,9 +459,26 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 		return err;
 	}
 
-	err = lwm2m_engine_register_post_write_callback(LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
-								   ACCELEROMETER_THRESHOLD_RID),
-							config_update_cb);
+	err = lwm2m_engine_register_post_write_callback(
+		LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+			   ACCELEROMETER_ACT_THRESHOLD_RID),
+		config_update_cb);
+	if (err) {
+		return err;
+	}
+
+	err = lwm2m_engine_register_post_write_callback(
+		LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+			   ACCELEROMETER_INACT_THRESHOLD_RID),
+		config_update_cb);
+	if (err) {
+		return err;
+	}
+
+	err = lwm2m_engine_register_post_write_callback(
+		LWM2M_PATH(CONFIGURATION_OBJECT_ID, 0,
+			   ACCELEROMETER_INACT_TIMEOUT_RID),
+		config_update_cb);
 	if (err) {
 		return err;
 	}
@@ -516,17 +505,17 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(
+	err = lwm2m_engine_set_res_buf(
 		LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID, BUTTON1_OBJ_INST_ID, APPLICATION_TYPE_RID),
-		BUTTON1_APP_NAME, sizeof(BUTTON1_APP_NAME), LWM2M_RES_DATA_FLAG_RO);
+		BUTTON1_APP_NAME, sizeof(BUTTON1_APP_NAME), sizeof(BUTTON1_APP_NAME),
+		LWM2M_RES_DATA_FLAG_RO);
 	if (err) {
 		return err;
 	}
 
-	err = lwm2m_engine_set_res_data(
+	err = lwm2m_engine_set_res_buf(
 		LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID, BUTTON1_OBJ_INST_ID, TIMESTAMP_RID),
-		&button_timestamp,
-		sizeof(button_timestamp), LWM2M_RES_DATA_FLAG_RW);
+		&button_ts, sizeof(button_ts), sizeof(button_ts), LWM2M_RES_DATA_FLAG_RW);
 	if (err) {
 		return err;
 	}
@@ -539,20 +528,21 @@ int cloud_codec_init(struct cloud_data_cfg *cfg, cloud_codec_evt_handler_t event
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID,
-							   BUTTON2_OBJ_INST_ID,
-							   APPLICATION_TYPE_RID),
-						BUTTON2_APP_NAME, sizeof(BUTTON2_APP_NAME),
-						LWM2M_RES_DATA_FLAG_RO);
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID,
+							  BUTTON2_OBJ_INST_ID,
+							  APPLICATION_TYPE_RID),
+					       BUTTON2_APP_NAME, sizeof(BUTTON2_APP_NAME),
+					       sizeof(BUTTON2_APP_NAME), LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID,
-							   BUTTON2_OBJ_INST_ID, TIMESTAMP_RID),
-						&button_timestamp,
-						sizeof(button_timestamp),
-						LWM2M_RES_DATA_FLAG_RW);
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID,
+							  BUTTON2_OBJ_INST_ID, TIMESTAMP_RID),
+					       &button_ts,
+					       sizeof(button_ts),
+					       sizeof(button_ts),
+					       LWM2M_RES_DATA_FLAG_RW);
 		if (err) {
 			return err;
 		}
@@ -580,34 +570,28 @@ int cloud_codec_encode_neighbor_cells(struct cloud_codec_data *output,
 	if (err == -ENODATA) {
 		LOG_DBG("No neighboring cells available, using single cell location request");
 
+		/* No neighboring cells found, set single cell request. */
 		err = lwm2m_engine_set_s32(LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0,
 						      ASSIST_TYPE_RID),
-					  ASSISTANCE_REQUEST_TYPE_SINGLECELL_REQUEST);
+					   ASSISTANCE_REQUEST_TYPE_SINGLECELL_REQUEST);
 		if (err) {
 			return err;
 		}
 
-		goto single_cell_set_and_send;
-	} else if (err) {
+	} else if (err == 0) {
+
+		/* Neighboring cells found, set multicell request. */
+		err = lwm2m_engine_set_s32(LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0,
+							ASSIST_TYPE_RID),
+					   ASSISTANCE_REQUEST_TYPE_MULTICELL_REQUEST);
+		if (err) {
+			return err;
+		}
+
+	} else {
 		LOG_ERR("lwm2m_update_signal_meas_objects, error: %d", err);
 		return err;
 	}
-
-	/* Neighboring cells found. */
-	err = lwm2m_engine_set_s32(LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0,
-					      ASSIST_TYPE_RID),
-				   ASSISTANCE_REQUEST_TYPE_MULTICELL_REQUEST);
-	if (err) {
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(ECID_SIGNAL_MEASUREMENT_INFO_OBJECT_ID));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-single_cell_set_and_send:
 
 	err = lwm2m_engine_set_s8(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
 					     RADIO_SIGNAL_STRENGTH),
@@ -644,43 +628,17 @@ single_cell_set_and_send:
 		return err;
 	}
 
-	err = object_path_list_add(output, LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0,
-						      ASSIST_TYPE_RID));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
+	static const char * const path_list[] = {
+		LWM2M_PATH(ECID_SIGNAL_MEASUREMENT_INFO_OBJECT_ID),
+		LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0, ASSIST_TYPE_RID),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, RADIO_SIGNAL_STRENGTH),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, CELLID),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, SMNC),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, SMCC),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, LAC)
+	};
 
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      RADIO_SIGNAL_STRENGTH));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      CELLID));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      SMNC));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      SMCC));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      LAC));
+	err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 	if (err) {
 		LOG_ERR("Failed populating object path list, error: %d", err);
 		return err;
@@ -729,6 +687,7 @@ int cloud_codec_encode_agps_request(struct cloud_codec_data *output,
 		mask |= LOCATION_ASSIST_NEEDS_INTEGRITY;
 	}
 
+	/* Sets A-GPS mask and type of request. */
 	location_assist_agps_request_set(mask);
 
 	err = lwm2m_engine_set_u32(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
@@ -759,43 +718,16 @@ int cloud_codec_encode_agps_request(struct cloud_codec_data *output,
 		return err;
 	}
 
-	err = object_path_list_add(output, LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0,
-						      ASSIST_TYPE_RID));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
+	static const char * const path_list[] = {
+		LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0, ASSIST_TYPE_RID),
+		LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0, AGPS_MASK_RID),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, CELLID),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, SMNC),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, SMCC),
+		LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0, LAC)
+	};
 
-	err = object_path_list_add(output, LWM2M_PATH(LOCATION_ASSIST_OBJECT_ID, 0,
-						      AGPS_MASK_RID));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      CELLID));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      SMNC));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      SMCC));
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
-
-	err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID, 0,
-						      LAC));
+	err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 	if (err) {
 		LOG_ERR("Failed populating object path list, error: %d", err);
 		return err;
@@ -828,14 +760,25 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 			    struct cloud_data_modem_static *modem_stat_buf,
 			    struct cloud_data_modem_dynamic *modem_dyn_buf,
 			    struct cloud_data_ui *ui_buf,
-			    struct cloud_data_accelerometer *accel_buf,
+			    struct cloud_data_impact *impact_buf,
 			    struct cloud_data_battery *bat_buf)
 {
+	ARG_UNUSED(ui_buf);
+
 	int err;
 	bool objects_written = false;
+	double alt, acc, spd;
 
 	/* GPS PVT */
 	if (gnss_buf->queued) {
+		/*
+		 * The LwM2M engine expect double pointers, so floats have to be casted to double
+		 * first. Then we can pass pointers to the double values.
+		 */
+		alt = (double) gnss_buf->pvt.alt;
+		acc = (double) gnss_buf->pvt.acc;
+		spd = (double) gnss_buf->pvt.spd;
+
 		err = date_time_uptime_to_unix_time_ms(&gnss_buf->gnss_ts);
 		if (err) {
 			LOG_ERR("date_time_uptime_to_unix_time_ms, error: %d", err);
@@ -843,45 +786,47 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 		}
 
 		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0, LATITUDE_RID),
-					     (double *)&gnss_buf->pvt.lat);
+					     &gnss_buf->pvt.lat);
 		if (err) {
 			return err;
 		}
 
 		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0, LONGITUDE_RID),
-					     (double *)&gnss_buf->pvt.longi);
+					     &gnss_buf->pvt.longi);
 		if (err) {
 			return err;
 		}
 
 		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0, ALTITUDE_RID),
-					     (double *)&gnss_buf->pvt.alt);
+					     &alt);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0,
-							RADIUS_RID),
-					     (double *)&gnss_buf->pvt.acc);
+		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0, RADIUS_RID),
+					     &acc);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0,
-							SPEED_RID),
-					     (double *)&gnss_buf->pvt.spd);
+		err = lwm2m_engine_set_float(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0, SPEED_RID),
+					     &spd);
 		if (err) {
 			return err;
 		}
 
 		err = lwm2m_engine_set_s32(LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID, 0,
-						LOCATION_TIMESTAMP_RID),
+						      LOCATION_TIMESTAMP_RID),
 					   (int32_t)(gnss_buf->gnss_ts / MSEC_PER_SEC));
 		if (err) {
 			return err;
 		}
 
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID));
+		static const char * const path_list[] = {
+			LWM2M_PATH(LWM2M_OBJECT_LOCATION_ID)
+		};
+
+		err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 		if (err) {
 			LOG_ERR("Failed populating object path list, error: %d", err);
 			return err;
@@ -913,34 +858,34 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 			LOG_WRN("No network bearer set");
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
-							   0, AVAIL_NETWORK_BEARER_ID, 0),
-						&bearers[0], sizeof(bearers[0]),
-						LWM2M_RES_DATA_FLAG_RO);
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
+							  0, AVAIL_NETWORK_BEARER_ID, 0),
+					       &bearers[0], sizeof(bearers[0]), sizeof(bearers[0]),
+					       LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
 							   0, AVAIL_NETWORK_BEARER_ID, 1),
-						&bearers[1], sizeof(bearers[1]),
-						LWM2M_RES_DATA_FLAG_RO);
+					       &bearers[1], sizeof(bearers[1]), sizeof(bearers[1]),
+					       LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
 							   0, IP_ADDRESSES, 0),
-						modem_dyn_buf->ip, sizeof(modem_dyn_buf->ip),
-						LWM2M_RES_DATA_FLAG_RO);
+					       modem_dyn_buf->ip, sizeof(modem_dyn_buf->ip),
+					       sizeof(modem_dyn_buf->ip), LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID,
 							   0, APN, 0),
-						modem_dyn_buf->apn, sizeof(modem_dyn_buf->apn),
-						LWM2M_RES_DATA_FLAG_RO);
+					       modem_dyn_buf->apn, sizeof(modem_dyn_buf->apn),
+					       sizeof(modem_dyn_buf->apn), LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
@@ -981,28 +926,23 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 		}
 
 		err = date_time_now(&current_time);
-		if (err == 0) {
-
-			err = lwm2m_engine_set_s32(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      CURRENT_TIME_RID),
-						   (int32_t)(current_time / MSEC_PER_SEC));
-			if (err) {
-				return err;
-			}
-
-			err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-								      CURRENT_TIME_RID));
-			if (err) {
-				LOG_ERR("Failed populating object path list, error: %d", err);
-				return err;
-			}
-
-		} else {
+		if (err) {
 			LOG_WRN("Failed getting current time, error: %d", err);
+			return err;
 		}
 
-		err = object_path_list_add(output,
-					   LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID));
+		err = lwm2m_engine_set_s32(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, CURRENT_TIME_RID),
+					   (int32_t)(current_time / MSEC_PER_SEC));
+		if (err) {
+			return err;
+		}
+
+		static const char * const path_list[] = {
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, CURRENT_TIME_RID),
+			LWM2M_PATH(LWM2M_OBJECT_CONNECTIVITY_MONITORING_ID)
+		};
+
+		err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 		if (err) {
 			LOG_ERR("Failed populating object path list, error: %d", err);
 			return err;
@@ -1015,87 +955,69 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 	/* Modem static */
 	if (modem_stat_buf->queued) {
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							   MODEL_NUMBER_RID),
-						CONFIG_BOARD,
-						sizeof(CONFIG_BOARD),
-						LWM2M_RES_DATA_FLAG_RO);
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
+							  MODEL_NUMBER_RID),
+					       CONFIG_BOARD,
+					       sizeof(CONFIG_BOARD),
+					       sizeof(CONFIG_BOARD),
+					       LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							   HARDWARE_VERSION_RID),
-						CONFIG_SOC,
-						sizeof(CONFIG_SOC),
-						LWM2M_RES_DATA_FLAG_RO);
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
+							  HARDWARE_VERSION_RID),
+					       CONFIG_SOC,
+					       sizeof(CONFIG_SOC),
+					       sizeof(CONFIG_SOC),
+					       LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							   MANUFACTURER_RID),
-						CONFIG_CLOUD_CODEC_MANUFACTURER,
-						sizeof(CONFIG_CLOUD_CODEC_MANUFACTURER),
-						LWM2M_RES_DATA_FLAG_RO);
+		err = lwm2m_engine_set_res_buf(LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
+							  MANUFACTURER_RID),
+					       CONFIG_CLOUD_CODEC_MANUFACTURER,
+					       sizeof(CONFIG_CLOUD_CODEC_MANUFACTURER),
+					       sizeof(CONFIG_CLOUD_CODEC_MANUFACTURER),
+					       LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(
+		err = lwm2m_engine_set_res_buf(
 			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, FIRMWARE_VERSION_RID),
-			modem_stat_buf->appv,
+			modem_stat_buf->appv, sizeof(modem_stat_buf->appv),
 			sizeof(modem_stat_buf->appv), LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(
+		err = lwm2m_engine_set_res_buf(
 			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, SOFTWARE_VERSION_RID),
-			modem_stat_buf->fw,
+			modem_stat_buf->fw, sizeof(modem_stat_buf->fw),
 			sizeof(modem_stat_buf->fw), LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = lwm2m_engine_set_res_data(
+		err = lwm2m_engine_set_res_buf(
 			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, DEVICE_SERIAL_NUMBER_ID),
-			modem_stat_buf->imei,
+			modem_stat_buf->imei, sizeof(modem_stat_buf->imei),
 			sizeof(modem_stat_buf->imei), LWM2M_RES_DATA_FLAG_RO);
 		if (err) {
 			return err;
 		}
 
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      MANUFACTURER_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
+		static const char * const path_list[] = {
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, MANUFACTURER_RID),
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, MODEL_NUMBER_RID),
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, SOFTWARE_VERSION_RID),
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, FIRMWARE_VERSION_RID),
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, DEVICE_SERIAL_NUMBER_ID)
+		};
 
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      MODEL_NUMBER_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      SOFTWARE_VERSION_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      FIRMWARE_VERSION_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      DEVICE_SERIAL_NUMBER_ID));
+		err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 		if (err) {
 			LOG_ERR("Failed populating object path list, error: %d", err);
 			return err;
@@ -1114,8 +1036,11 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 			return err;
 		}
 
-		err = object_path_list_add(output, LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0,
-							      POWER_SOURCE_VOLTAGE_RID));
+		static const char * const path_list[] = {
+			LWM2M_PATH(LWM2M_OBJECT_DEVICE_ID, 0, POWER_SOURCE_VOLTAGE_RID)
+		};
+
+		err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 		if (err) {
 			LOG_ERR("Failed populating object path list, error: %d", err);
 			return err;
@@ -1176,45 +1101,16 @@ int cloud_codec_encode_data(struct cloud_codec_data *output,
 			return err;
 		}
 
-		/* Timestamps */
-		err = object_path_list_add(output, LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0,
-							      TIMESTAMP_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
+		static const char * const path_list[] = {
+			LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0, TIMESTAMP_RID),
+			LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0, TIMESTAMP_RID),
+			LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, TIMESTAMP_RID),
+			LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0, SENSOR_VALUE_RID),
+			LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0, SENSOR_VALUE_RID),
+			LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0, SENSOR_VALUE_RID)
+		};
 
-		err = object_path_list_add(output, LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0,
-							      TIMESTAMP_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		err = object_path_list_add(output, LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0,
-							      TIMESTAMP_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		/* Environmental sensor values. */
-		err = object_path_list_add(output, LWM2M_PATH(IPSO_OBJECT_TEMP_SENSOR_ID, 0,
-							      SENSOR_VALUE_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		err = object_path_list_add(output, LWM2M_PATH(IPSO_OBJECT_HUMIDITY_SENSOR_ID, 0,
-							      SENSOR_VALUE_RID));
-		if (err) {
-			LOG_ERR("Failed populating object path list, error: %d", err);
-			return err;
-		}
-
-		err = object_path_list_add(output, LWM2M_PATH(IPSO_OBJECT_PRESSURE_ID, 0,
-							      SENSOR_VALUE_RID));
+		err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 		if (err) {
 			LOG_ERR("Failed populating object path list, error: %d", err);
 			return err;
@@ -1241,8 +1137,7 @@ int cloud_codec_encode_ui_data(struct cloud_codec_data *output,
 	}
 
 	/* Create object instance according to the button number. */
-	char digital_input_path[12] = "\0", digital_counter_path[12] = "\0",
-	timestamp_path[12] = "\0";
+	char digital_input_path[12] = "\0", timestamp_path[12] = "\0";
 
 	len = snprintk(digital_input_path,
 		       sizeof(digital_input_path),
@@ -1251,16 +1146,6 @@ int cloud_codec_encode_ui_data(struct cloud_codec_data *output,
 		       (ui_buf->btn - 1),
 		       DIGITAL_INPUT_STATE_RID);
 	if ((len < 0) || (len >= sizeof(digital_input_path))) {
-		return -ERANGE;
-	}
-
-	len = snprintk(digital_counter_path,
-		       sizeof(digital_counter_path),
-		       "%d/%d/%d",
-		       IPSO_OBJECT_PUSH_BUTTON_ID,
-		       (ui_buf->btn - 1),
-		       DIGITAL_INPUT_COUNTER_RID);
-	if ((len < 0) || (len >= sizeof(digital_counter_path))) {
 		return -ERANGE;
 	}
 
@@ -1299,13 +1184,11 @@ int cloud_codec_encode_ui_data(struct cloud_codec_data *output,
 		return err;
 	}
 
-	err = object_path_list_add(output, digital_counter_path);
-	if (err) {
-		LOG_ERR("Failed populating object path list, error: %d", err);
-		return err;
-	}
+	static const char * const path_list[] = {
+		LWM2M_PATH(IPSO_OBJECT_PUSH_BUTTON_ID),
+	};
 
-	err = object_path_list_add(output, timestamp_path);
+	err = object_path_list_add(output, path_list, ARRAY_SIZE(path_list));
 	if (err) {
 		LOG_ERR("Failed populating object path list, error: %d", err);
 		return err;
@@ -1315,20 +1198,26 @@ int cloud_codec_encode_ui_data(struct cloud_codec_data *output,
 	return 0;
 }
 
+int cloud_codec_encode_impact_data(struct cloud_codec_data *output,
+				   struct cloud_data_impact *impact_buf)
+{
+	return -ENOTSUP;
+}
+
 int cloud_codec_encode_batch_data(struct cloud_codec_data *output,
 				  struct cloud_data_gnss *gnss_buf,
 				  struct cloud_data_sensors *sensor_buf,
 				  struct cloud_data_modem_static *modem_stat_buf,
 				  struct cloud_data_modem_dynamic *modem_dyn_buf,
 				  struct cloud_data_ui *ui_buf,
-				  struct cloud_data_accelerometer *accel_buf,
+				  struct cloud_data_impact *impact_buf,
 				  struct cloud_data_battery *bat_buf,
 				  size_t gnss_buf_count,
 				  size_t sensor_buf_count,
 				  size_t modem_stat_buf_count,
 				  size_t modem_dyn_buf_count,
 				  size_t ui_buf_count,
-				  size_t accel_buf_count,
+				  size_t impact_buf_count,
 				  size_t bat_buf_count)
 {
 	return -ENOTSUP;

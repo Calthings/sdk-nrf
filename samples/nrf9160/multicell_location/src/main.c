@@ -67,7 +67,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 			       "eDRX parameter update: eDRX: %f, PTW: %f",
 			       evt->edrx_cfg.edrx, evt->edrx_cfg.ptw);
 		if (len > 0) {
-			LOG_INF("%s", log_strdup(log_buf));
+			LOG_INF("%s", log_buf);
 		}
 		break;
 	}
@@ -261,11 +261,15 @@ static void print_cell_data(void)
 static void request_location(enum multicell_service service, const char *service_str)
 {
 	int err;
+	struct multicell_location_params params = { 0 };
 	struct multicell_location location;
 
 	LOG_INF("Sending location request for %s ...", service_str);
 
-	err = multicell_location_get(service, &cell_data, &location);
+	params.service = service;
+	params.cell_data = &cell_data;
+	params.timeout = SYS_FOREVER_MS;
+	err = multicell_location_get(&params, &location);
 	if (err) {
 		LOG_ERR("Failed to acquire location, error: %d", err);
 		return;
@@ -331,9 +335,6 @@ void main(void)
 #endif
 #if defined(CONFIG_MULTICELL_LOCATION_SERVICE_HERE)
 		request_location(MULTICELL_SERVICE_HERE, "HERE");
-#endif
-#if defined(CONFIG_MULTICELL_LOCATION_SERVICE_POLTE)
-		request_location(MULTICELL_SERVICE_POLTE, "Polte");
 #endif
 		request_location(MULTICELL_SERVICE_ANY, "Any");
 	}

@@ -243,7 +243,7 @@ static int resolve_and_connect(struct zzhc *ctx)
 
 	rc = getaddrinfo(hostname, NULL, &hints, &info);
 	if (rc != 0) {
-		LOG_DBG("Can't resolve hostname %s.", log_strdup(hostname));
+		LOG_DBG("Can't resolve hostname %s.", hostname);
 		return -EIO;
 	}
 
@@ -502,7 +502,7 @@ static int check_and_set_dns(struct zzhc *ctx)
 	err = nrf_getaddrinfo(hostname, NULL, &hints, &info);
 	if (err) {
 		LOG_DBG("Can't resolve hostname %s. err: %d. Trying secondary backup DNS.",
-			log_strdup(hostname), err);
+			hostname, err);
 	} else {
 		return 0;
 	}
@@ -523,7 +523,7 @@ static int check_and_set_dns(struct zzhc *ctx)
 
 	err = nrf_getaddrinfo(hostname, NULL, &hints, &info);
 	if (err) {
-		LOG_DBG("Can't resolve hostname %s. err: %d", log_strdup(hostname), err);
+		LOG_DBG("Can't resolve hostname %s. err: %d", hostname, err);
 		return -EIO;
 	}
 
@@ -540,7 +540,7 @@ static int fsm(struct zzhc *ctx)
 		LOG_DBG("STATE_INIT");
 
 		zzhc_sem_init(ctx->sem, 0, 0);
-		at_monitor_resume(zzhc_monitor);
+		at_monitor_resume(&zzhc_monitor);
 		ctx->state = STATE_WAIT_FOR_REG;
 		break;
 
@@ -653,7 +653,7 @@ static int fsm(struct zzhc *ctx)
 
 		/* Clean-up */
 		disconnect(ctx);
-		at_monitor_pause(zzhc_monitor);
+		at_monitor_pause(&zzhc_monitor);
 		return -ECANCELED;
 
 	default:

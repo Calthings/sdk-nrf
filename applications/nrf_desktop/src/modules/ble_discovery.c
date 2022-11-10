@@ -142,7 +142,7 @@ static void read_dev_descr_hwid(const uint8_t *ptr, uint16_t len)
 	}
 
 	if (err > 0) {
-		LOG_INF("HW ID: %s", log_strdup(log_buf));
+		LOG_INF("HW ID: %s", log_buf);
 	} else {
 		LOG_ERR("Failed to log HW ID");
 	}
@@ -340,7 +340,7 @@ static bool app_event_handler(const struct app_event_header *aeh)
 			cast_ble_peer_event(aeh);
 
 		switch (event->state) {
-		case PEER_STATE_SECURED:
+		case PEER_STATE_CONNECTED:
 			discovering_peer_conn = event->id;
 			bt_conn_ref(discovering_peer_conn);
 			k_work_submit(&next_discovery_step);

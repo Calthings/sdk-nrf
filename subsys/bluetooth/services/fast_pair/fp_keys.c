@@ -7,6 +7,7 @@
 #include <zephyr/device.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/sys/__assert.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(fast_pair, CONFIG_BT_FAST_PAIR_LOG_LEVEL);
@@ -24,6 +25,8 @@ LOG_MODULE_DECLARE(fast_pair, CONFIG_BT_FAST_PAIR_LOG_LEVEL);
 #define FP_KEY_GEN_FAILURE_MAX_CNT		10
 #define FP_KEY_GEN_FAILURE_CNT_RESET_TIMEOUT	K_MINUTES(5)
 
+BUILD_ASSERT(FP_ACCOUNT_KEY_LEN == FP_CRYPTO_AES128_KEY_LEN);
+
 enum fp_state {
 	FP_STATE_INITIAL,
 	FP_STATE_USE_TEMP_KEY,
@@ -33,10 +36,17 @@ enum fp_state {
 struct fp_procedure {
 	struct k_work_delayable timeout;
 	enum fp_state state;
-	uint8_t key_gen_failure_cnt;
 	bool pairing_mode;
-	uint8_t aes_key[FP_CRYPTO_ACCOUNT_KEY_LEN];
+	uint8_t aes_key[FP_ACCOUNT_KEY_LEN];
 };
+
+struct fp_key_gen_account_key_check_context {
+	const struct bt_conn *conn;
+	struct fp_keys_keygen_params *keygen_params;
+};
+
+static uint8_t key_gen_failure_cnt;
+static struct k_work_delayable key_gen_failure_cnt_reset;
 
 static bool user_pairing_mode = true;
 static struct fp_procedure fp_procedures[CONFIG_BT_MAX_CONN];
@@ -47,12 +57,22 @@ void bt_fast_pair_set_pairing_mode(bool pairing_mode)
 	user_pairing_mode = pairing_mode;
 }
 
+static void key_timeout(struct fp_procedure *proc)
+{
+	proc->state = FP_STATE_INITIAL;
+	memset(proc->aes_key, EMPTY_AES_KEY_BYTE, sizeof(proc->aes_key));
+}
+
 static void invalidate_key(struct fp_procedure *proc)
 {
 	if (proc->state != FP_STATE_INITIAL) {
-		proc->state = FP_STATE_INITIAL;
-		memset(proc->aes_key, EMPTY_AES_KEY_BYTE, sizeof(proc->aes_key));
-		k_work_cancel_delayable(&proc->timeout);
+		int ret;
+
+		key_timeout(proc);
+
+		ret = k_work_cancel_delayable(&proc->timeout);
+		__ASSERT_NO_MSG(ret == 0);
+		ARG_UNUSED(ret);
 	}
 }
 
@@ -70,7 +90,6 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 
 	invalidate_key(proc);
-	proc->key_gen_failure_cnt = 0;
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -78,7 +97,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.disconnected = disconnected,
 };
 
-int fp_keys_encrypt(struct bt_conn *conn, uint8_t *out, const uint8_t *in)
+int fp_keys_encrypt(const struct bt_conn *conn, uint8_t *out, const uint8_t *in)
 {
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 	int err = 0;
@@ -95,13 +114,13 @@ int fp_keys_encrypt(struct bt_conn *conn, uint8_t *out, const uint8_t *in)
 	}
 
 	if (!err) {
-		err = fp_crypto_aes128_encrypt(out, in, proc->aes_key);
+		err = fp_crypto_aes128_ecb_encrypt(out, in, proc->aes_key);
 	}
 
 	return err;
 }
 
-int fp_keys_decrypt(struct bt_conn *conn, uint8_t *out, const uint8_t *in)
+int fp_keys_decrypt(const struct bt_conn *conn, uint8_t *out, const uint8_t *in)
 {
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 	int err = 0;
@@ -118,13 +137,14 @@ int fp_keys_decrypt(struct bt_conn *conn, uint8_t *out, const uint8_t *in)
 	}
 
 	if (!err) {
-		err = fp_crypto_aes128_decrypt(out, in, proc->aes_key);
+		err = fp_crypto_aes128_ecb_decrypt(out, in, proc->aes_key);
 	}
 
 	return err;
 }
 
-static int key_gen_public_key(struct bt_conn *conn, struct fp_keys_keygen_params *keygen_params)
+static int key_gen_public_key(const struct bt_conn *conn,
+			      struct fp_keys_keygen_params *keygen_params)
 {
 	int err;
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
@@ -155,43 +175,50 @@ static int key_gen_public_key(struct bt_conn *conn, struct fp_keys_keygen_params
 	return err;
 }
 
-static int key_gen_account_key(struct bt_conn *conn, struct fp_keys_keygen_params *keygen_params)
+static bool key_gen_account_key_check(const struct fp_account_key *account_key, void *context)
 {
 	int err;
+	uint8_t req[FP_CRYPTO_AES128_BLOCK_LEN];
+	struct fp_key_gen_account_key_check_context *ak_check_context = context;
+	const struct bt_conn *conn = ak_check_context->conn;
+	struct fp_keys_keygen_params *keygen_params = ak_check_context->keygen_params;
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 
-	uint8_t req[FP_CRYPTO_AES128_BLOCK_LEN];
-	uint8_t ak[CONFIG_BT_FAST_PAIR_STORAGE_ACCOUNT_KEY_MAX][FP_CRYPTO_ACCOUNT_KEY_LEN];
-	size_t ak_cnt = CONFIG_BT_FAST_PAIR_STORAGE_ACCOUNT_KEY_MAX;
+	memcpy(proc->aes_key, account_key->key, FP_ACCOUNT_KEY_LEN);
 
-	err = fp_storage_account_keys_get(ak, &ak_cnt);
+	err = fp_keys_decrypt(conn, req, keygen_params->req_enc);
 	if (err) {
-		return err;
+		return false;
 	}
 
-	for (size_t i = 0; i < ak_cnt; i++) {
-		memcpy(proc->aes_key, ak[i], FP_CRYPTO_ACCOUNT_KEY_LEN);
-
-		err = fp_keys_decrypt(conn, req, keygen_params->req_enc);
-		if (!err) {
-			err = keygen_params->req_validate_cb(conn, req, keygen_params->context);
-		}
-
-		if (!err) {
-			/* Key was found. */
-			break;
-		}
+	err = keygen_params->req_validate_cb(conn, req, keygen_params->context);
+	if (err) {
+		return false;
 	}
 
-	return err;
+	return true;
 }
 
-int fp_keys_generate_key(struct bt_conn *conn, struct fp_keys_keygen_params *keygen_params)
+static int key_gen_account_key(const struct bt_conn *conn,
+			       struct fp_keys_keygen_params *keygen_params)
+{
+	struct fp_key_gen_account_key_check_context context = {
+		.conn = conn,
+		.keygen_params = keygen_params,
+	};
+
+	/* This function call assigns the Account Key internally to the Fast Pair Keys
+	 * module. The assignment happens in the provided callback method.
+	 */
+	return fp_storage_account_key_find(NULL, key_gen_account_key_check, &context);
+}
+
+int fp_keys_generate_key(const struct bt_conn *conn, struct fp_keys_keygen_params *keygen_params)
 {
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 	int err = 0;
 
-	if (proc->key_gen_failure_cnt >= FP_KEY_GEN_FAILURE_MAX_CNT) {
+	if (key_gen_failure_cnt >= FP_KEY_GEN_FAILURE_MAX_CNT) {
 		return -EACCES;
 	}
 
@@ -207,7 +234,9 @@ int fp_keys_generate_key(struct bt_conn *conn, struct fp_keys_keygen_params *key
 		if (proc->pairing_mode) {
 			err = key_gen_public_key(conn, keygen_params);
 		} else {
-			err = -EACCES;
+			/* Ignore write and exit. */
+			proc->state = FP_STATE_INITIAL;
+			return -EACCES;
 		}
 	} else {
 		err = key_gen_account_key(conn, keygen_params);
@@ -215,22 +244,31 @@ int fp_keys_generate_key(struct bt_conn *conn, struct fp_keys_keygen_params *key
 
 	if (err) {
 		invalidate_key(proc);
-		proc->key_gen_failure_cnt++;
-		if (proc->key_gen_failure_cnt >= FP_KEY_GEN_FAILURE_MAX_CNT) {
+		key_gen_failure_cnt++;
+		if (key_gen_failure_cnt >= FP_KEY_GEN_FAILURE_MAX_CNT) {
+			int ret;
+
 			LOG_WRN("Key generation failure limit exceeded");
-			k_work_reschedule(&proc->timeout, FP_KEY_GEN_FAILURE_CNT_RESET_TIMEOUT);
+			ret = k_work_schedule(&key_gen_failure_cnt_reset,
+					      FP_KEY_GEN_FAILURE_CNT_RESET_TIMEOUT);
+			__ASSERT_NO_MSG(ret == 1);
+			ARG_UNUSED(ret);
 		}
 	} else {
-		proc->key_gen_failure_cnt = 0;
+		key_gen_failure_cnt = 0;
 		if (proc->state == FP_STATE_USE_TEMP_KEY) {
-			k_work_reschedule(&proc->timeout, FP_KEY_TIMEOUT);
+			int ret;
+
+			ret = k_work_schedule(&proc->timeout, FP_KEY_TIMEOUT);
+			__ASSERT_NO_MSG(ret == 1);
+			ARG_UNUSED(ret);
 		}
 	}
 
 	return err;
 }
 
-int fp_keys_store_account_key(struct bt_conn *conn, const uint8_t *account_key)
+int fp_keys_store_account_key(const struct bt_conn *conn, const struct fp_account_key *account_key)
 {
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 	int err = 0;
@@ -243,7 +281,7 @@ int fp_keys_store_account_key(struct bt_conn *conn, const uint8_t *account_key)
 	/* Invalidate Key to ensure that requests will be rejected until procedure is restarted. */
 	invalidate_key(proc);
 
-	if (account_key[0] != FP_ACCOUNT_KEY_PREFIX) {
+	if (account_key->key[0] != FP_ACCOUNT_KEY_PREFIX) {
 		LOG_WRN("Received invalid Account Key");
 		return -EINVAL;
 	}
@@ -257,33 +295,45 @@ int fp_keys_store_account_key(struct bt_conn *conn, const uint8_t *account_key)
 	return err;
 }
 
-void fp_keys_bt_auth_progress(struct bt_conn *conn, bool authenticated)
+void fp_keys_bt_auth_progress(const struct bt_conn *conn, bool authenticated)
 {
 	struct fp_procedure *proc = &fp_procedures[bt_conn_index(conn)];
 
 	if (proc->state == FP_STATE_USE_TEMP_KEY) {
-		k_work_reschedule(&proc->timeout, FP_KEY_TIMEOUT);
+		int ret;
+
+		ret = k_work_cancel_delayable(&proc->timeout);
+		__ASSERT_NO_MSG(ret == 0);
+		ret = k_work_schedule(&proc->timeout, FP_KEY_TIMEOUT);
+		__ASSERT_NO_MSG(ret == 1);
+		ARG_UNUSED(ret);
+
 		if (authenticated) {
 			proc->state = FP_STATE_WAIT_FOR_ACCOUNT_KEY;
 		}
 	}
 }
 
-void fp_keys_drop_key(struct bt_conn *conn)
+void fp_keys_drop_key(const struct bt_conn *conn)
 {
 	invalidate_key(&fp_procedures[bt_conn_index(conn)]);
+}
+
+static void key_gen_failure_cnt_reset_fn(struct k_work *w)
+{
+	key_gen_failure_cnt = 0;
+	LOG_INF("Key generation failure counter reset");
 }
 
 static void timeout_fn(struct k_work *w)
 {
 	struct fp_procedure *proc = CONTAINER_OF(w, struct fp_procedure, timeout);
 
-	if (proc->key_gen_failure_cnt >= FP_KEY_GEN_FAILURE_MAX_CNT) {
-		proc->key_gen_failure_cnt = 0;
-	} else {
-		LOG_WRN("Key discarded (timeout)");
-		invalidate_key(proc);
-	}
+	__ASSERT_NO_MSG((proc->state == FP_STATE_USE_TEMP_KEY) ||
+			(proc->state == FP_STATE_WAIT_FOR_ACCOUNT_KEY));
+
+	LOG_WRN("Key discarded (timeout)");
+	key_timeout(proc);
 }
 
 static int fp_keys_init(const struct device *unused)
@@ -297,6 +347,8 @@ static int fp_keys_init(const struct device *unused)
 		memset(proc->aes_key, EMPTY_AES_KEY_BYTE, sizeof(proc->aes_key));
 		k_work_init_delayable(&proc->timeout, timeout_fn);
 	}
+
+	k_work_init_delayable(&key_gen_failure_cnt_reset, key_gen_failure_cnt_reset_fn);
 
 	return 0;
 }

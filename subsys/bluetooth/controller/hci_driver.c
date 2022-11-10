@@ -28,6 +28,7 @@
 #include "multithreading_lock.h"
 #include "hci_internal.h"
 #include "ecdh.h"
+#include "radio_nrf5_txp.h"
 
 #define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
 #define LOG_MODULE_NAME sdc_hci_driver
@@ -115,15 +116,15 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_BT_PERIPHERAL) ||
 #define CENTRAL_MEM_SIZE (SDC_MEM_PER_CENTRAL_LINK( \
 	MAX_TX_PACKET_SIZE, \
 	MAX_RX_PACKET_SIZE, \
-	SDC_DEFAULT_TX_PACKET_COUNT, \
-	SDC_DEFAULT_RX_PACKET_COUNT) \
+	CONFIG_BT_CTLR_SDC_TX_PACKET_COUNT, \
+	CONFIG_BT_CTLR_SDC_RX_PACKET_COUNT) \
 	+ SDC_MEM_CENTRAL_LINKS_SHARED)
 
 #define PERIPHERAL_MEM_SIZE (SDC_MEM_PER_PERIPHERAL_LINK( \
 	MAX_TX_PACKET_SIZE, \
 	MAX_RX_PACKET_SIZE, \
-	SDC_DEFAULT_TX_PACKET_COUNT, \
-	SDC_DEFAULT_RX_PACKET_COUNT) \
+	CONFIG_BT_CTLR_SDC_TX_PACKET_COUNT, \
+	CONFIG_BT_CTLR_SDC_RX_PACKET_COUNT) \
 	+ SDC_MEM_PERIPHERAL_LINKS_SHARED)
 
 #define PERIPHERAL_COUNT CONFIG_BT_CTLR_SDC_PERIPHERAL_COUNT
@@ -149,7 +150,7 @@ void sdc_assertion_handler(const char *const file, const uint32_t line)
 #else /* !IS_ENABLED(CONFIG_BT_CTLR_ASSERT_HANDLER) */
 void sdc_assertion_handler(const char *const file, const uint32_t line)
 {
-	BT_ERR("SoftDevice Controller ASSERT: %s, %d", log_strdup(file), line);
+	BT_ERR("SoftDevice Controller ASSERT: %s, %d", file, line);
 	k_oops();
 }
 #endif /* IS_ENABLED(CONFIG_BT_CTLR_ASSERT_HANDLER) */
@@ -272,6 +273,17 @@ static bool event_packet_is_discardable(const uint8_t *hci_buf)
 		switch (me->subevent) {
 		case BT_HCI_EVT_LE_ADVERTISING_REPORT:
 			return true;
+#if defined(CONFIG_BT_EXT_ADV)
+		case BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT:
+		{
+			const struct bt_hci_evt_le_ext_advertising_report *ext_adv =
+				(void *)&hci_buf[3];
+
+			return (ext_adv->num_reports == 1) &&
+				   ((ext_adv->adv_info->evt_type &
+					 BT_HCI_LE_ADV_EVT_TYPE_LEGACY) != 0);
+		}
+#endif
 		default:
 			return false;
 		}
@@ -374,6 +386,34 @@ static bool fetch_and_process_acl_data(uint8_t *p_hci_buffer)
 	return true;
 }
 
+
+static bool fetch_and_process_hci_msg(uint8_t *p_hci_buffer)
+{
+	int errcode;
+	sdc_hci_msg_type_t msg_type;
+
+	errcode = MULTITHREADING_LOCK_ACQUIRE();
+	if (!errcode) {
+		errcode = hci_internal_msg_get(p_hci_buffer, &msg_type);
+		MULTITHREADING_LOCK_RELEASE();
+	}
+
+	if (errcode) {
+		return false;
+	}
+
+	if (msg_type == SDC_HCI_MSG_TYPE_EVT) {
+		event_packet_process(p_hci_buffer);
+	} else if (msg_type == SDC_HCI_MSG_TYPE_DATA) {
+		data_packet_process(p_hci_buffer);
+	} else {
+		__ASSERT(false, "sdc_hci_msg_type_t has changed. This if-else needs a new branch");
+		return false;
+	}
+
+	return true;
+}
+
 void hci_driver_receive_process(void)
 {
 #if defined(CONFIG_BT_BUF_EVT_DISCARDABLE_COUNT)
@@ -385,6 +425,7 @@ void hci_driver_receive_process(void)
 
 	bool received_evt = false;
 	bool received_data = false;
+	bool received_msg = false;
 
 	received_evt = fetch_and_process_hci_evt(&hci_buf[0]);
 
@@ -392,7 +433,9 @@ void hci_driver_receive_process(void)
 		received_data = fetch_and_process_acl_data(&hci_buf[0]);
 	}
 
-	if (received_evt || received_data) {
+	received_msg = fetch_and_process_hci_msg(&hci_buf[0]);
+
+	if (received_evt || received_data || received_msg) {
 		/* Let other threads of same priority run in between. */
 		receive_signal_raise();
 	}
@@ -501,9 +544,17 @@ static int configure_supported_features(void)
 	}
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_DATA_LENGTH)) {
-		err = sdc_support_dle();
-		if (err) {
-			return -ENOTSUP;
+		if (IS_ENABLED(CONFIG_BT_CENTRAL)) {
+			err = sdc_support_dle_central();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+			err = sdc_support_dle_peripheral();
+			if (err) {
+				return -ENOTSUP;
+			}
 		}
 	}
 
@@ -512,12 +563,36 @@ static int configure_supported_features(void)
 		if (err) {
 			return -ENOTSUP;
 		}
+		if (IS_ENABLED(CONFIG_BT_CENTRAL)) {
+			err = sdc_support_phy_update_central();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+			err = sdc_support_phy_update_peripheral();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
 	}
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_PHY_CODED)) {
 		err = sdc_support_le_coded_phy();
 		if (err) {
 			return -ENOTSUP;
+		}
+		if (IS_ENABLED(CONFIG_BT_CENTRAL)) {
+			err = sdc_support_phy_update_central();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+			err = sdc_support_phy_update_peripheral();
+			if (err) {
+				return -ENOTSUP;
+			}
 		}
 	}
 
@@ -532,6 +607,13 @@ static int configure_supported_features(void)
 			return -ENOTSUP;
 		}
 	}
+
+#if RADIO_TXP_DEFAULT != 0
+	err = sdc_default_tx_power_set(RADIO_TXP_DEFAULT);
+	if (err) {
+		return -ENOTSUP;
+	}
+#endif
 
 	return 0;
 }
@@ -564,8 +646,8 @@ static int configure_memory_usage(void)
 
 	cfg.buffer_cfg.rx_packet_size = MAX_RX_PACKET_SIZE;
 	cfg.buffer_cfg.tx_packet_size = MAX_TX_PACKET_SIZE;
-	cfg.buffer_cfg.rx_packet_count = SDC_DEFAULT_RX_PACKET_COUNT;
-	cfg.buffer_cfg.tx_packet_count = SDC_DEFAULT_TX_PACKET_COUNT;
+	cfg.buffer_cfg.rx_packet_count = CONFIG_BT_CTLR_SDC_RX_PACKET_COUNT;
+	cfg.buffer_cfg.tx_packet_count = CONFIG_BT_CTLR_SDC_TX_PACKET_COUNT;
 
 	required_memory =
 		sdc_cfg_set(SDC_DEFAULT_RESOURCE_CFG_TAG,

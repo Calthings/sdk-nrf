@@ -39,8 +39,8 @@ Check and configure the following configuration option for the sample:
 
 .. _CONFIG_SMS_SEND_PHONE_NUMBER:
 
-CONFIG_SMS_SEND_PHONE_NUMBER - Configuration for recipient phone number
-   The sample configuration is used to set the recipient phone number if you need to send SMS.
+CONFIG_SMS_SEND_PHONE_NUMBER - Configuration for recipient phone number in international format
+   The sample configuration is used to set the recipient phone number in international format if you need to send an SMS.
 
 Additional configuration
 ========================
@@ -113,3 +113,7 @@ This sample uses the following |NCS| library:
 It uses the following `sdk-nrfxlib`_ library:
 
 * :ref:`nrfxlib:nrf_modem`
+
+The sample also uses the following secure firmware component:
+
+* :ref:`Trusted Firmware-M <ug_tfm>`

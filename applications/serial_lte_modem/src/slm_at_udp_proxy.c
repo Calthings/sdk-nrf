@@ -201,7 +201,7 @@ static int do_udp_client_connect(const char *url, uint16_t port)
 
 	ret = util_resolve_host(0, url, port, proxy.family, &sa);
 	if (ret) {
-		LOG_ERR("getaddrinfo() error: %s", log_strdup(gai_strerror(ret)));
+		LOG_ERR("getaddrinfo() error: %s", gai_strerror(ret));
 		goto cli_exit;
 	}
 	if (sa.sa_family == AF_INET) {
@@ -413,7 +413,7 @@ static void udp_thread_func(void *p1, void *p2, void *p3)
 	} while (true);
 
 	if (in_datamode()) {
-		(void)exit_datamode(false);
+		(void)exit_datamode(ret);
 	}
 	if (proxy.sock != INVALID_SOCKET) {
 		(void)close(proxy.sock);

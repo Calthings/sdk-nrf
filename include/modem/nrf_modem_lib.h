@@ -4,6 +4,20 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#ifndef NRF_MODEM_LIB_H_
+#define NRF_MODEM_LIB_H_
+
+#include <zephyr/kernel.h>
+#include <nrf_modem.h>
+
+#if CONFIG_NRF_MODEM_LIB_MEM_DIAG
+#include <zephyr/sys/sys_heap.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @file nrf_modem_lib.h
  *
@@ -13,13 +27,6 @@
  *
  * @brief API of the SMS nRF Modem library wrapper module.
  */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include <zephyr/kernel.h>
-#include <nrf_modem.h>
 
 /**
  * @brief Initialize the Modem library.
@@ -46,7 +53,7 @@ extern "C" {
  *
  * @return int Zero on success, non-zero otherwise.
  */
-int nrf_modem_lib_init(enum nrf_modem_mode_t mode);
+int nrf_modem_lib_init(enum nrf_modem_mode mode);
 
 /**
  * @brief Modem library initialization callback struct.
@@ -124,7 +131,7 @@ __deprecated void nrf_modem_lib_shutdown_wait(void);
  *
  * @return int The last return value of nrf_modem_lib_init.
  */
-int nrf_modem_lib_get_init_ret(void);
+__deprecated int nrf_modem_lib_get_init_ret(void);
 
 /**
  * @brief Shutdown the Modem library, releasing its resources.
@@ -134,16 +141,6 @@ int nrf_modem_lib_get_init_ret(void);
 int nrf_modem_lib_shutdown(void);
 
 /**
- * @brief Print diagnostic information for the TX heap.
- */
-void nrf_modem_lib_shm_tx_diagnose(void);
-
-/**
- * @brief Print diagnostic information for the library heap.
- */
-void nrf_modem_lib_heap_diagnose(void);
-
-/**
  * @brief Modem fault handler.
  *
  * @param[in] fault_info Modem fault information.
@@ -151,8 +148,32 @@ void nrf_modem_lib_heap_diagnose(void);
  */
 void nrf_modem_fault_handler(struct nrf_modem_fault_info *fault_info);
 
+#if defined(CONFIG_NRF_MODEM_LIB_MEM_DIAG) || defined(__DOXYGEN__)
+
+struct nrf_modem_lib_diag_stats {
+	struct {
+		struct sys_memory_stats heap;
+		uint32_t failed_allocs;
+	} library;
+	struct {
+		struct sys_memory_stats heap;
+		uint32_t failed_allocs;
+	} shmem;
+};
+
+/**
+ * @brief Retrieve heap runtime statistics.
+ *
+ * Retrieve runtime statistics for the shared memory and library heaps.
+ */
+int nrf_modem_lib_diag_stats_get(struct nrf_modem_lib_diag_stats *stats);
+
+#endif /* defined(CONFIG_NRF_MODEM_LIB_MEM_DIAG) || defined(__DOXYGEN__) */
+
 /** @} */
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* NRF_MODEM_LIB_H_ */

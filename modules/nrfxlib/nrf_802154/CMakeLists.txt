@@ -8,7 +8,7 @@ if (CONFIG_NRF_802154_RADIO_DRIVER OR CONFIG_NRF_802154_SERIALIZATION)
   if (CONFIG_NRF_802154_SL)
     target_sources(nrf-802154-platform
       PRIVATE
-        ${ZEPHYR_CURRENT_MODULE_DIR}/nrf_802154/sl/platform/hp_timer/nrf_802154_hp_timer.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/sl/platform/nrf_802154_hp_timer.c
         ${CMAKE_CURRENT_SOURCE_DIR}/sl/platform/nrf_802154_platform_sl_lptimer_zephyr.c
     )
   endif ()
@@ -30,4 +30,10 @@ if (CONFIG_NRF_802154_RADIO_DRIVER OR CONFIG_NRF_802154_SERIALIZATION)
 
   target_compile_definitions(zephyr-802154-interface INTERFACE NRF_802154_ECB_PRIORITY=-1)
   target_compile_definitions(zephyr-802154-interface INTERFACE NRF_802154_SWI_PRIORITY=1)
+
+  if (CONFIG_NRF_802154_ACK_TIMEOUT_CUSTOM_US)
+    target_compile_definitions(zephyr-802154-interface
+      INTERFACE
+        NRF_802154_PRECISE_ACK_TIMEOUT_DEFAULT_TIMEOUT=${CONFIG_NRF_802154_ACK_TIMEOUT_CUSTOM_US})
+  endif ()
 endif (CONFIG_NRF_802154_RADIO_DRIVER OR CONFIG_NRF_802154_SERIALIZATION)

@@ -12,6 +12,7 @@
 #include <zephyr/kernel.h>
 #include <string.h>
 #include <nrf_modem.h>
+#include <nrf_modem_at.h>
 #include <modem/lte_lc.h>
 #include <modem/pdn.h>
 #include <modem/nrf_modem_lib.h>
@@ -62,6 +63,16 @@ AT_MONITOR(lwm2m_carrier_at_handler, ANY, lwm2m_os_at_handler);
 /* LwM2M carrier OS logs. */
 LOG_MODULE_REGISTER(lwm2m_os, LOG_LEVEL_DBG);
 
+NRF_MODEM_LIB_ON_INIT(lwm2m_os_init_hook, on_modem_lib_init, NULL);
+
+/* Initialized to value different than success (0) */
+static int modem_lib_init_result = -1;
+
+static void on_modem_lib_init(int ret, void *ctx)
+{
+	modem_lib_init_result = ret;
+}
+
 int lwm2m_os_init(void)
 {
 #if defined CONFIG_LOG_RUNTIME_FILTERING
@@ -110,6 +121,7 @@ int lwm2m_os_sleep(int ms)
 
 void lwm2m_os_sys_reset(void)
 {
+	LOG_PANIC();
 	sys_reboot(SYS_REBOOT_COLD);
 	CODE_UNREACHABLE;
 }
@@ -175,10 +187,49 @@ int lwm2m_os_storage_read(uint16_t id, void *data, size_t len)
 	return nvs_read(&fs, id, data, len);
 }
 
+static void mode_switch_on_inband_fota(void)
+{
+	enum lte_lc_system_mode mode = LTE_LC_SYSTEM_MODE_NONE;
+	enum lte_lc_system_mode_preference preference = LTE_LC_SYSTEM_MODE_PREFER_AUTO;
+	enum lte_lc_lte_mode bearer = LTE_LC_LTE_MODE_NONE;
+	uint32_t operator_id = 0;
+
+	if (nrf_modem_at_scanf("AT%XOPERID", "%%XOPERID: %u", &operator_id) < 1) {
+		return;
+	}
+
+	if (operator_id != 1) {
+		/* Only for specific operator. */
+		return;
+	}
+
+	lte_lc_lte_mode_get(&bearer);
+	if (bearer != LTE_LC_LTE_MODE_NBIOT) {
+		/* No switching needed. */
+		return;
+	}
+
+	lte_lc_system_mode_get(&mode, &preference);
+	if (mode != LTE_LC_SYSTEM_MODE_LTEM_NBIOT && mode != LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS) {
+		/* No switching possible. */
+		return;
+	}
+
+	lte_lc_offline();
+
+	lwm2m_os_lte_mode_request(LWM2M_OS_LTE_MODE_CAT_M1);
+
+	lte_lc_normal();
+}
+
 int lwm2m_os_storage_write(uint16_t id, const void *data, size_t len)
 {
 	__ASSERT((id >= LWM2M_OS_STORAGE_BASE) && (id <= LWM2M_OS_STORAGE_END),
 		 "Storage ID out of range");
+
+	if (id == LWM2M_OS_STORAGE_END - 8 && len == 4 && *(int *)data == 2) {
+		mode_switch_on_inband_fota();
+	}
 
 	return nvs_write(&fs, id, data, len);
 }
@@ -356,7 +407,7 @@ int lwm2m_os_thread_start(int index, lwm2m_os_thread_entry_t entry, const char *
 int lwm2m_os_nrf_modem_init(void)
 {
 #if defined CONFIG_NRF_MODEM_LIB_SYS_INIT
-	int nrf_err = nrf_modem_lib_get_init_ret();
+	int nrf_err = modem_lib_init_result;
 #else
 	int nrf_err = nrf_modem_lib_init(NORMAL_MODE);
 #endif /* CONFIG_NRF_MODEM_LIB_SYS_INIT */
@@ -554,7 +605,7 @@ int lwm2m_os_download_file_size_get(size_t *size)
 
 /* LTE LC module abstractions. */
 
-int32_t lwm2m_os_lte_mode_get(void)
+size_t lwm2m_os_lte_modes_get(int32_t *modes)
 {
 	enum lte_lc_system_mode mode;
 
@@ -563,13 +614,45 @@ int32_t lwm2m_os_lte_mode_get(void)
 	switch (mode) {
 	case LTE_LC_SYSTEM_MODE_LTEM:
 	case LTE_LC_SYSTEM_MODE_LTEM_GPS:
-		return LWM2M_OS_LTE_MODE_CAT_M1;
+		modes[0] = LWM2M_OS_LTE_MODE_CAT_M1;
+		return 1;
 	case LTE_LC_SYSTEM_MODE_NBIOT:
 	case LTE_LC_SYSTEM_MODE_NBIOT_GPS:
-		return LWM2M_OS_LTE_MODE_CAT_NB1;
+		modes[0] = LWM2M_OS_LTE_MODE_CAT_NB1;
+		return 1;
+	case LTE_LC_SYSTEM_MODE_LTEM_NBIOT:
+	case LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS:
+		modes[0] = LWM2M_OS_LTE_MODE_CAT_M1;
+		modes[1] = LWM2M_OS_LTE_MODE_CAT_NB1;
+		return 2;
 	default:
-		return LWM2M_OS_LTE_MODE_NONE;
+		return 0;
 	}
+}
+
+void lwm2m_os_lte_mode_request(int32_t prefer)
+{
+	enum lte_lc_system_mode mode;
+	enum lte_lc_system_mode_preference preference;
+	static enum lte_lc_system_mode_preference application_preference;
+
+	(void)lte_lc_system_mode_get(&mode, &preference);
+
+	switch (prefer) {
+	case LWM2M_OS_LTE_MODE_CAT_M1:
+		application_preference = preference;
+		preference = LTE_LC_SYSTEM_MODE_PREFER_LTEM;
+		break;
+	case LWM2M_OS_LTE_MODE_CAT_NB1:
+		application_preference = preference;
+		preference = LTE_LC_SYSTEM_MODE_PREFER_NBIOT;
+		break;
+	case LWM2M_OS_LTE_MODE_NONE:
+		preference = application_preference;
+		break;
+	}
+
+	(void)lte_lc_system_mode_set(mode, preference);
 }
 
 /* PDN abstractions */
@@ -588,11 +671,6 @@ BUILD_ASSERT(
 	(int)LWM2M_OS_PDN_EVENT_IPV6_DOWN == (int)PDN_EVENT_IPV6_DOWN,
 	"Incompatible enums"
 );
-
-int lwm2m_os_pdn_init(void)
-{
-	return pdn_init();
-}
 
 int lwm2m_os_pdn_ctx_create(uint8_t *cid, lwm2m_os_pdn_event_handler_t cb)
 {
@@ -631,7 +709,7 @@ int lwm2m_os_pdn_default_apn_get(char *buf, size_t len)
 
 int lwm2m_os_pdn_default_callback_set(lwm2m_os_pdn_event_handler_t cb)
 {
-	return pdn_default_callback_set((pdn_event_handler_t)cb);
+	return pdn_default_ctx_cb_reg((pdn_event_handler_t)cb);
 }
 
 /* errno handling. */

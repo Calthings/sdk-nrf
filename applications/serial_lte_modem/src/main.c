@@ -30,7 +30,7 @@ LOG_MODULE_REGISTER(slm, CONFIG_SLM_LOG_LEVEL);
 #define SLM_WQ_PRIORITY		K_LOWEST_APPLICATION_THREAD_PRIO
 static K_THREAD_STACK_DEFINE(slm_wq_stack_area, SLM_WQ_STACK_SIZE);
 
-static const struct device *gpio_dev;
+static const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static struct gpio_callback gpio_cb;
 static struct k_work_delayable indicate_work;
 
@@ -53,6 +53,16 @@ static void indicate_wk(struct k_work *work);
 
 BUILD_ASSERT(CONFIG_SLM_WAKEUP_PIN >= 0, "Wake up pin not configured");
 
+NRF_MODEM_LIB_ON_INIT(serial_lte_modem_init_hook, on_modem_lib_init, NULL);
+
+/* Initialized to value different than success (0) */
+static int modem_lib_init_result = -1;
+
+static void on_modem_lib_init(int ret, void *ctx)
+{
+	modem_lib_init_result = ret;
+}
+
 #if defined(CONFIG_NRF_MODEM_LIB_ON_FAULT_APPLICATION_SPECIFIC)
 static void on_modem_failure_shutdown(struct k_work *item);
 static void on_modem_failure_reinit(struct k_work *item);
@@ -64,7 +74,8 @@ void nrf_modem_fault_handler(struct nrf_modem_fault_info *fault_info)
 {
 	char rsp[64];
 
-	sprintf(rsp, "#XMODEM: FAULT,0x%x,0x%x", fault_info->reason, fault_info->program_counter);
+	sprintf(rsp, "\r\n#XMODEM: FAULT,0x%x,0x%x\r\n", fault_info->reason,
+		fault_info->program_counter);
 	rsp_send(rsp, strlen(rsp));
 	/* For now we wait 10 ms to give the trace handler time to process trace data. */
 	k_work_reschedule(&modem_failure_shutdown_work, K_MSEC(10));
@@ -76,7 +87,7 @@ static void on_modem_failure_shutdown(struct k_work *work)
 	int ret = nrf_modem_lib_shutdown();
 
 	ARG_UNUSED(work);
-	sprintf(rsp, "#XMODEM: SHUTDOWN,%d", ret);
+	sprintf(rsp, "\r\n#XMODEM: SHUTDOWN,%d\r\n", ret);
 	rsp_send(rsp, strlen(rsp));
 	k_work_reschedule(&modem_failure_reinit_work, K_MSEC(10));
 }
@@ -87,7 +98,7 @@ static void on_modem_failure_reinit(struct k_work *work)
 	int ret = nrf_modem_lib_init(NORMAL_MODE);
 
 	ARG_UNUSED(work);
-	sprintf(rsp, "#XMODEM: INIT,%d", ret);
+	sprintf(rsp, "\r\n#XMODEM: INIT,%d\r\n", ret);
 	rsp_send(rsp, strlen(rsp));
 }
 #endif /* CONFIG_NRF_MODEM_LIB_ON_FAULT_APPLICATION_SPECIFIC */
@@ -125,6 +136,33 @@ static int ext_xtal_control(bool xtal_on)
 	return err;
 }
 
+/* This function is safe to call twice after reset */
+static int init_gpio(void)
+{
+	int err;
+
+	if (!device_is_ready(gpio_dev)) {
+		LOG_ERR("GPIO controller not ready");
+		return -ENODEV;
+	}
+	err = gpio_pin_configure(gpio_dev, CONFIG_SLM_WAKEUP_PIN,
+				 GPIO_INPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW);
+	if (err) {
+		LOG_ERR("GPIO_0 config error: %d", err);
+		return err;
+	}
+#if (CONFIG_SLM_INDICATE_PIN >= 0)
+	err = gpio_pin_configure(gpio_dev, CONFIG_SLM_INDICATE_PIN,
+				 GPIO_OUTPUT_INACTIVE | GPIO_ACTIVE_LOW);
+	if (err) {
+		LOG_ERR("GPIO_0 config error: %d", err);
+		return err;
+	}
+#endif
+
+	return 0;
+}
+
 int indicate_start(void)
 {
 	int err = 0;
@@ -134,16 +172,6 @@ int indicate_start(void)
 		return 0;
 	}
 	LOG_DBG("Start indicating");
-	gpio_dev = device_get_binding(DT_LABEL(DT_NODELABEL(gpio0)));
-	if (gpio_dev == NULL) {
-		LOG_ERR("GPIO_0 bind error");
-		return -EAGAIN;
-	}
-	err = gpio_pin_configure(gpio_dev, CONFIG_SLM_INDICATE_PIN, GPIO_OUTPUT);
-	if (err) {
-		LOG_ERR("GPIO_0 config error: %d", err);
-		return -EAGAIN;
-	}
 	err = gpio_pin_set(gpio_dev, CONFIG_SLM_INDICATE_PIN, 1);
 	if (err) {
 		LOG_ERR("GPIO_0 set error: %d", err);
@@ -160,7 +188,6 @@ static void indicate_stop(void)
 	if (gpio_pin_set(gpio_dev, CONFIG_SLM_INDICATE_PIN, 0) != 0) {
 		LOG_WRN("GPIO_0 set error");
 	}
-	gpio_pin_configure(gpio_dev, CONFIG_SLM_INDICATE_PIN, GPIO_DISCONNECTED);
 	LOG_DBG("Stop indicating");
 #endif
 }
@@ -190,23 +217,12 @@ static void gpio_cb_func(const struct device *dev, struct gpio_callback *gpio_cb
 
 	gpio_pin_interrupt_configure(gpio_dev, CONFIG_SLM_WAKEUP_PIN, GPIO_INT_DISABLE);
 	gpio_remove_callback(gpio_dev, gpio_cb);
-	gpio_pin_configure(gpio_dev, CONFIG_SLM_WAKEUP_PIN, GPIO_DISCONNECTED);
 }
 
 void enter_idle(void)
 {
 	int err;
 
-	gpio_dev = device_get_binding(DT_LABEL(DT_NODELABEL(gpio0)));
-	if (gpio_dev == NULL) {
-		LOG_ERR("GPIO_0 bind error");
-		return;
-	}
-	err = gpio_pin_configure(gpio_dev, CONFIG_SLM_WAKEUP_PIN, GPIO_INPUT | GPIO_PULL_UP);
-	if (err) {
-		LOG_ERR("GPIO_0 config error: %d", err);
-		return;
-	}
 	gpio_init_callback(&gpio_cb, gpio_cb_func, BIT(CONFIG_SLM_WAKEUP_PIN));
 	err = gpio_add_callback(gpio_dev, &gpio_cb);
 	if (err) {
@@ -229,8 +245,8 @@ void enter_sleep(void)
 {
 	/*
 	 * Due to errata 4, Always configure PIN_CNF[n].INPUT before PIN_CNF[n].SENSE.
+	 * At this moment WAKEUP_PIN has already been configured as INPUT at init_gpio().
 	 */
-	nrf_gpio_cfg_input(CONFIG_SLM_WAKEUP_PIN, NRF_GPIO_PIN_PULLUP);
 	nrf_gpio_cfg_sense_set(CONFIG_SLM_WAKEUP_PIN, NRF_GPIO_PIN_SENSE_LOW);
 
 	k_sleep(K_MSEC(100));
@@ -240,7 +256,7 @@ void enter_sleep(void)
 
 static void handle_nrf_modem_lib_init_ret(void)
 {
-	int ret = nrf_modem_lib_get_init_ret();
+	int ret = modem_lib_init_result;
 
 	/* Handle return values relating to modem firmware update */
 	switch (ret) {
@@ -324,25 +340,21 @@ void handle_mcuboot_swap_ret(void)
 int start_execute(void)
 {
 	int err;
-	static bool slm_started;
 
-	if (!slm_started) {
-		LOG_INF("Serial LTE Modem");
-		err = ext_xtal_control(true);
-		if (err < 0) {
-			LOG_ERR("Failed to enable ext XTAL: %d", err);
-			return err;
-		}
-		err = slm_at_host_init();
-		if (err) {
-			LOG_ERR("Failed to init at_host: %d", err);
-			return err;
-		}
-		k_work_queue_start(&slm_work_q, slm_wq_stack_area,
-				   K_THREAD_STACK_SIZEOF(slm_wq_stack_area),
-				   SLM_WQ_PRIORITY, NULL);
-		slm_started = true;
+	LOG_INF("Serial LTE Modem");
+	err = ext_xtal_control(true);
+	if (err < 0) {
+		LOG_ERR("Failed to enable ext XTAL: %d", err);
+		return err;
 	}
+	err = slm_at_host_init();
+	if (err) {
+		LOG_ERR("Failed to init at_host: %d", err);
+		return err;
+	}
+	k_work_queue_start(&slm_work_q, slm_wq_stack_area,
+			   K_THREAD_STACK_SIZEOF(slm_wq_stack_area),
+			   SLM_WQ_PRIORITY, NULL);
 
 	return 0;
 }
@@ -352,7 +364,6 @@ static void indicate_wk(struct k_work *work)
 	ARG_UNUSED(work);
 
 	indicate_stop();
-	(void)start_execute();
 }
 
 int main(void)
@@ -363,6 +374,10 @@ int main(void)
 	LOG_DBG("RR: 0x%08x", rr);
 	k_work_init_delayable(&indicate_work, indicate_wk);
 
+	/* Init GPIOs */
+	if (init_gpio() != 0) {
+		LOG_WRN("Failed to init gpio");
+	}
 	/* Init and load settings */
 	if (slm_settings_init() != 0) {
 		LOG_WRN("Failed to init slm settings");
@@ -389,15 +404,6 @@ int main(void)
 	enter_sleep();
 	return 0;
 #else
-#if (CONFIG_SLM_INDICATE_PIN >= 0)
-	if ((rr & NRF_POWER_RESETREAS_DOG_MASK) ||     /* watch dog reset */
-	    (rr & NRF_POWER_RESETREAS_SREQ_MASK) ||    /* software reset */
-	    (rr & NRF_POWER_RESETREAS_LOCKUP_MASK)) {  /* CPU lockup reset */
-		if (indicate_start() == 0) {
-			return 0;
-		}
-	}
-#endif /* CONFIG_SLM_INDICATE_PIN >= 0 */
 	return start_execute();
 #endif /* CONFIG_SLM_START_SLEEP */
 }

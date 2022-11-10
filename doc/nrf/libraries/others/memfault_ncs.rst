@@ -9,7 +9,6 @@ Memfault
 
 The Memfault module provides an integration of `Memfault SDK`_ into |NCS| and expands the functionality of the SDK with some options that are specific to |NCS|.
 
-
 Overview
 ********
 
@@ -21,9 +20,12 @@ Communication with the Memfault Cloud is handled by APIs available in Memfault S
 
 For official documentation for Memfault SDK and the Memfault platform in general, see `Memfault Docs`_.
 
-See the :ref:`memfault_sample` sample for an example of Memfault implementation in |NCS|.
+See the following examples of Memfault implementation in |NCS|:
 
-Memfault in |NCS| currently supports the nRF9160-based build targets.
+   * :ref:`memfault_sample` - This sample connects to the LTE network and sends data using HTTPS.
+     It supports nRF9160-based build targets
+   * :ref:`peripheral_mds` - This sample has an implementation of the MDS.
+     It sends data to the Memfault cloud through a Bluetooth gateway.
 
 .. _using_memfault:
 
@@ -58,6 +60,9 @@ These Kconfig options are differentiated by two distinct prefixes:
 * ``CONFIG_MEMFAULT_`` - Prefix for options defined in Memfault SDK
 * ``CONFIG_MEMFAULT_NCS_`` - Prefix for options defined in |NCS|
 
+Additionally, |NCS| has an implementation of the :ref:`mds_readme`.
+Use the :kconfig:option:`CONFIG_BT_MDS` option to enable it.
+The MDS cannot be used concurrently with HTTP transport.
 
 Configuration files
 ===================
@@ -125,6 +130,7 @@ The Kconfig options for Memfault that are defined in |NCS| provide some addition
 * :kconfig:option:`CONFIG_MEMFAULT_NCS_INTERNAL_FLASH_BACKED_COREDUMP`
 * :kconfig:option:`CONFIG_MEMFAULT_NCS_LTE_METRICS`
 * :kconfig:option:`CONFIG_MEMFAULT_NCS_STACK_METRICS`
+* :kconfig:option:`CONFIG_MEMFAULT_NCS_BT_METRICS`
 
 The |NCS| integration of `Memfault SDK`_ provides default values for some metadata that are required to identify the firmware when it is sent to Memfault cloud.
 These defaults can be controlled by using the configuration options below:
@@ -135,6 +141,14 @@ These defaults can be controlled by using the configuration options below:
 * :kconfig:option:`CONFIG_MEMFAULT_NCS_FW_VERSION_STATIC`
 * :kconfig:option:`CONFIG_MEMFAULT_NCS_FW_VERSION_PREFIX`
 
+The Kconfig options for :kconfig:option:`CONFIG_BT_MDS` are the following:
+
+* :kconfig:option:`CONFIG_BT_MDS`
+* :kconfig:option:`CONFIG_BT_MDS_MAX_URI_LENGTH`
+* :kconfig:option:`CONFIG_BT_MDS_PERM_RW`
+* :kconfig:option:`CONFIG_BT_MDS_PERM_RW_ENCRYPT`
+* :kconfig:option:`CONFIG_BT_MDS_PIPELINE_COUNT`
+* :kconfig:option:`CONFIG_BT_MDS_DATA_POLL_INTERVAL`
 
 API documentation
 *****************

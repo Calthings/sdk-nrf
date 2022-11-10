@@ -83,7 +83,6 @@ Moreover, you must configure the following parameters:
 
   * ``reg`` - The slave ID number the device has on a bus.
   * ``label`` - Name of the device.
-    Used to get device binding with :c:func:`device_get_binding`.
   * ``spi-max-frequency`` - Used for setting the bus clock frequency.
 
 * Pin to which the motion sensor IRQ line is connected (``irq-gpios``).
@@ -136,7 +135,7 @@ Sensor attributes
 =================
 
 The sensor supports a custom set of attributes that are not part of generic sensor attributes defined by Zephyr's :ref:`zephyr:sensor_api` API.
-The attribues are defined as private to the motion sensor in the sensor's header file.
+The attributes are defined as private to the motion sensor in the sensor's header file.
 See API documentation for details.
 
 API documentation

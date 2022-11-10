@@ -17,36 +17,7 @@
 LOG_MODULE_REGISTER(location_tracking, CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL);
 
 static location_update_cb_t location_update_handler;
-
-/**
- * @brief Configure the antenna for GNSS!
- *
- * This must be done before the modem becomes active, which is
- * ensured by the NRF_MODEM_LIB_ON_INIT call below.
- */
-static void gnss_antenna_configure(int ret, void *ctx)
-{
-	if (ret != 0) {
-		return;
-	}
-
-	int err;
-
-	if (strlen(CONFIG_GNSS_AT_MAGPIO) > 0) {
-		err = nrf_modem_at_printf("%s", CONFIG_GNSS_AT_MAGPIO);
-		if (err) {
-			printk("Failed to set MAGPIO configuration\n");
-		}
-	}
-
-	if (strlen(CONFIG_GNSS_AT_COEX0) > 0) {
-		err = nrf_modem_at_printf("%s", CONFIG_GNSS_AT_COEX0);
-		if (err) {
-			printk("Failed to set COEX0 configuration\n");
-		}
-	}
-}
-NRF_MODEM_LIB_ON_INIT(location_tracking_init_hook, gnss_antenna_configure, NULL);
+static bool location_initialized;
 
 void location_assistance_data_handler(const char *buf, size_t len)
 {
@@ -63,6 +34,11 @@ void location_assistance_data_handler(const char *buf, size_t len)
 	 * to the modem by nrf_cloud_agps_process.
 	 */
 	int err;
+
+	if (!location_initialized) {
+		LOG_DBG("Received data but not ready for it.");
+		return;
+	}
 
 	/* First, try to process the payload as A-GPS data, if AGPS is enabled */
 	if (IS_ENABLED(CONFIG_NRF_CLOUD_AGPS)) {
@@ -108,7 +84,7 @@ static void location_event_handler(const struct location_event_data *event_data)
 		LOG_DBG("Location Event: Got location");
 		if (location_update_handler) {
 			/* Pass received location data along to our handler. */
-			location_update_handler(event_data->location);
+			location_update_handler(&event_data->location);
 		}
 		break;
 
@@ -147,6 +123,7 @@ int start_location_tracking(location_update_cb_t handler_cb, int interval)
 		LOG_ERR("Initializing the Location library failed, error: %d", err);
 		return err;
 	}
+	location_initialized = true;
 
 	/* Construct a request for a periodic location report. */
 	struct location_config config;
@@ -194,7 +171,7 @@ int start_location_tracking(location_update_cb_t handler_cb, int interval)
 	 */
 	if (IS_ENABLED(CONFIG_LOCATION_TRACKING_GNSS)) {
 		/* Set the GNSS timeout and desired accuracy. */
-		config.methods[0].gnss.timeout = CONFIG_GNSS_FIX_TIMEOUT_SECONDS;
+		config.methods[0].gnss.timeout = CONFIG_GNSS_FIX_TIMEOUT_SECONDS * MSEC_PER_SEC;
 		config.methods[0].gnss.accuracy = LOCATION_ACCURACY_NORMAL;
 	}
 

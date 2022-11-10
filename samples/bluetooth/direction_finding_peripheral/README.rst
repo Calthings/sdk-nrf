@@ -26,8 +26,8 @@ The direction finding peripheral sample uses Constant Tone Extension (CTE), that
 
 The sample supports two direction finding modes:
 
-* angle of arrival (AoA)
-* angle of departure (AoD)
+* Angle of Arrival (AoA)
+* Angle of Departure (AoD)
 
 By default, both modes are available in the sample.
 
@@ -41,9 +41,16 @@ This sample configuration is split into the following two files:
 * generic configuration is available in the :file:`prj.conf` file
 * board specific configuration is available in the :file:`boards/<BOARD>.conf` file
 
-Board specific configuration involves configuring the Bluetooth LE controller.
-For :ref:`nRF5340 DK <ug_nrf5340>`, the Bluetooth LE controller is part of a ``child image`` meant to run on the network core.
-Configuration for the child image is stored in the :file:`child_image/` subdirectory.
+nRF5340 configuration files
+===========================
+
+The following additional configuration files are available for the :ref:`nRF5340 DK <ug_nrf5340>`:
+
+* The Bluetooth LE controller is part of a child image meant to run on the network core.
+  The configuration for the child image is stored in the :file:`child_image/` subdirectory.
+* :file:`boards/nrf5340dk_nrf5340_cpuapp.overlay` DTS overlay file is available for the application core.
+  This file forwards the control over GPIOs to network core, which gives control over GPIOs to the radio peripheral in order to execute antenna switching.
+
 
 Angle of arrival mode
 =====================
@@ -134,7 +141,7 @@ Building and Running
 Testing
 =======
 
-After programming the sample to your development kit, test it by performing the following steps:
+|test_sample|
 
 1. |connect_terminal_specific|
 #. In the terminal window, check for information similar to the following::

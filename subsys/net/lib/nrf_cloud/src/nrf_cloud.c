@@ -93,7 +93,7 @@ int nrf_cloud_init(const struct nrf_cloud_init_param *param)
 		return -EACCES;
 	}
 
-	if (param->event_handler == NULL) {
+	if ((param == NULL) || (param->event_handler == NULL)) {
 		return -EINVAL;
 	}
 
@@ -107,6 +107,18 @@ int nrf_cloud_init(const struct nrf_cloud_init_param *param)
 	if (err) {
 		return err;
 	}
+
+	/* Set the flash device before initializing the transport/FOTA. */
+#if defined(CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE)
+	if (param->fmfu_dev_inf) {
+		err = nrf_cloud_fota_fmfu_dev_set(param->fmfu_dev_inf);
+		if (err < 0) {
+			return err;
+		}
+	} else {
+		LOG_WRN("Full modem FOTA not initialized; flash device info not provided");
+	}
+#endif
 
 	/* Initialize the transport. */
 	err = nct_init(param->client_id);
@@ -426,9 +438,13 @@ int nct_input(const struct nct_evt *evt)
 	return nfsm_handle_incoming_event(evt, current_state);
 }
 
-void nct_apply_update(const struct nrf_cloud_evt * const evt)
+void nct_send_event(const struct nrf_cloud_evt * const evt)
 {
-	app_event_handler(evt);
+	__ASSERT_NO_MSG(evt != NULL);
+
+	if (app_event_handler && evt) {
+		app_event_handler(evt);
+	}
 }
 
 int nrf_cloud_process(void)
@@ -529,11 +545,12 @@ start:
 			LOG_DBG("Socket error: POLLNVAL");
 			if (nfsm_get_disconnect_requested()) {
 				LOG_DBG("The cloud socket was disconnected by request");
+				evt.status = NRF_CLOUD_DISCONNECT_USER_REQUEST;
 			} else {
 				LOG_DBG("The cloud socket was unexpectedly closed");
+				evt.status = NRF_CLOUD_DISCONNECT_INVALID_REQUEST;
 			}
 
-			evt.status = NRF_CLOUD_DISCONNECT_INVALID_REQUEST;
 			break;
 		}
 
@@ -555,7 +572,10 @@ start:
 	/* Send the event if the transport has not already been disconnected */
 	if (atomic_get(&transport_disconnected) == 0) {
 		nfsm_set_current_state_and_notify(STATE_INITIALIZED, &evt);
-		nrf_cloud_disconnect();
+		if (evt.status != NRF_CLOUD_DISCONNECT_USER_REQUEST) {
+			/* Not requested, do proper disconnect */
+			(void)nct_disconnect();
+		}
 	}
 
 reset:

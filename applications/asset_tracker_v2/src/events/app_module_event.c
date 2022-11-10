@@ -38,10 +38,6 @@ static char *get_evt_type_str(enum app_module_event_type type)
 		return "APP_EVT_DATA_GET";
 	case APP_EVT_CONFIG_GET:
 		return "APP_EVT_CONFIG_GET";
-	case APP_EVT_ACTIVITY_DETECTION_ENABLE:
-		return "APP_EVT_ACTIVITY_DETECTION_ENABLE";
-	case APP_EVT_ACTIVITY_DETECTION_DISABLE:
-		return "APP_EVT_ACTIVITY_DETECTION_DISABLE";
 	case APP_EVT_AGPS_NEEDED:
 		return "APP_EVT_AGPS_NEEDED";
 	case APP_EVT_DATA_GET_ALL:
@@ -81,7 +77,7 @@ static void log_event(const struct app_event_header *aeh)
 		}
 
 		APP_EVENT_MANAGER_LOG(aeh, "%s - Requested data types (%s)",
-				get_evt_type_str(event->type), log_strdup(data_types));
+				get_evt_type_str(event->type), data_types);
 	} else {
 		APP_EVENT_MANAGER_LOG(aeh, "%s", get_evt_type_str(event->type));
 	}

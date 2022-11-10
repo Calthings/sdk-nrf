@@ -45,7 +45,7 @@ config DESKTOP_BLE_USE_DEFAULT_ID
 	help
 	  Bluetooth default local identity is used as ID 0. This identity
 	  cannot be reset. After bond for the default identity is removed,
-	  it is not longer used.
+	  it is no longer used.
 
 config DESKTOP_BLE_PEER_CONTROL
 	bool "Enable interaction with peer configuration"
@@ -130,10 +130,10 @@ config DESKTOP_BLE_DONGLE_PEER_SELECTOR_POS
 	  peers are selected.
 
 config DESKTOP_BLE_DONGLE_PEER_ERASE_BOND_BUTTON
-	bool "Allow earasing dongle peer using button"
+	bool "Allow erasing dongle peer using button"
 
 config DESKTOP_BLE_DONGLE_PEER_ERASE_BOND_CONF_CHANNEL
-	bool "Allow earasing dongle peer using config channel"
+	bool "Allow erasing dongle peer using config channel"
 	depends on  DESKTOP_CONFIG_CHANNEL_ENABLE
 
 endif
@@ -194,6 +194,15 @@ config DESKTOP_BLE_SCAN_KEYBOARD_LIMIT
 	default 1
 	range 0 255
 	depends on DESKTOP_BLE_SCANNING_ENABLE
+
+config DESKTOP_BLE_SCAN_PM_EVENTS
+	bool "Stop and block scanning in the power down mode"
+	default y
+	depends on DESKTOP_BLE_SCANNING_ENABLE
+	depends on CAF_PM_EVENTS
+	help
+	  Stop and block scanning for peers if the central switched to the power down mode
+	  to reduce power consumption.
 
 if DESKTOP_BLE_SCANNING_ENABLE
 

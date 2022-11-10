@@ -19,6 +19,13 @@
 
 LOG_MODULE_REGISTER(nrf_cloud_rest_fota, CONFIG_NRF_CLOUD_REST_FOTA_SAMPLE_LOG_LEVEL);
 
+#if defined(CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE)
+/* Full modem FOTA requires external flash to hold the full modem image.
+ * Below is the external flash device present on the nRF9160 DK version 1.0.1 and higher.
+ */
+#define EXT_FLASH_DEVICE jedec_spi_nor
+#endif
+
 /* Use the settings library to store FOTA job information to flash so
  * that the job status can be updated after a reboot
  */
@@ -83,8 +90,19 @@ static char rx_buf[REST_RX_BUF_SZ];
 /* Buffer used for JSON Web Tokens (JWTs) */
 static char jwt[JWT_BUF_SZ];
 
+NRF_MODEM_LIB_ON_INIT(nrf_cloud_rest_fota_init_hook,
+		      on_modem_lib_init, NULL);
+
+/* Initialized to value different than success (0) */
+static int modem_lib_init_result = -1;
+
+static void on_modem_lib_init(int ret, void *ctx)
+{
+	modem_lib_init_result = ret;
+}
+
 /* nRF Cloud REST context */
-struct nrf_cloud_rest_context rest_ctx = {
+static struct nrf_cloud_rest_context rest_ctx = {
 	.connect_socket = -1,
 	.keep_alive = true,
 	.rx_buf = rx_buf,
@@ -99,6 +117,9 @@ static bool jitp_requested;
 
 /* Flag to indicate if FOTA should be enabled in the device shadow */
 static bool enable_fota_requested;
+
+/* Flag to indicate if full modem FOTA is enabled */
+static bool full_modem_fota_initd;
 
 static int rest_fota_settings_set(const char *key, size_t len_rd,
 			    settings_read_cb read_cb, void *cb_arg);
@@ -116,7 +137,7 @@ static int rest_fota_settings_set(const char *key, size_t len_rd, settings_read_
 		return -EINVAL;
 	}
 
-	LOG_DBG("Settings key: %s, size: %d", log_strdup(key), len_rd);
+	LOG_DBG("Settings key: %s, size: %d", key, len_rd);
 
 	if (strncmp(key, FOTA_SETTINGS_KEY_PENDING_JOB, strlen(FOTA_SETTINGS_KEY_PENDING_JOB))) {
 		return -ENOMSG;
@@ -138,7 +159,7 @@ static int rest_fota_settings_set(const char *key, size_t len_rd, settings_read_
 
 	if (sz == sizeof(pending_job)) {
 		LOG_INF("Saved job: %s, type: %d, validate: %d, bl: 0x%X",
-			log_strdup(pending_job.id), pending_job.type,
+			pending_job.id, pending_job.type,
 			pending_job.validate, pending_job.bl_flags);
 	} else {
 		LOG_INF("FOTA settings size smaller than current, likely outdated");
@@ -184,7 +205,7 @@ static void http_fota_dl_handler(const struct fota_download_evt *evt)
 
 		if (evt->cause == FOTA_DOWNLOAD_ERROR_CAUSE_INVALID_UPDATE) {
 			fota_status = NRF_CLOUD_FOTA_REJECTED;
-			if (job.type == NRF_CLOUD_FOTA_MODEM) {
+			if (nrf_cloud_fota_is_type_modem(job.type)) {
 				fota_status_details = FOTA_STATUS_DETAILS_MDM_REJ;
 			} else {
 				fota_status_details = FOTA_STATUS_DETAILS_MCU_REJ;
@@ -253,7 +274,7 @@ static int generate_jwt(void)
 		return err;
 	}
 
-	LOG_DBG("JWT:\n%s", log_strdup(jwt));
+	LOG_DBG("JWT:\n%s", jwt);
 	rest_ctx.auth = jwt;
 
 	return 0;
@@ -367,8 +388,10 @@ static void do_fota_enable(void)
 	struct nrf_cloud_svc_info_fota fota = {
 		.bootloader = 1,
 		.modem = 1,
-		.application = 1
+		.application = 1,
+		.modem_full = full_modem_fota_initd
 	};
+
 	struct nrf_cloud_svc_info svc_inf = {
 		.fota = &fota,
 		.ui = NULL
@@ -410,7 +433,6 @@ static void process_pending_job(void)
 int init(void)
 {
 	struct modem_param_info mdm_param;
-	int modem_lib_init_result;
 	int err = init_led();
 
 	if (err) {
@@ -427,9 +449,25 @@ int init(void)
 		LOG_WRN("Failed to load settings, error: %d", err);
 	}
 
-	if (IS_ENABLED(CONFIG_NRF_MODEM_LIB_SYS_INIT)) {
-		modem_lib_init_result = nrf_modem_lib_get_init_ret();
+#if defined(CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE)
+	struct dfu_target_fmfu_fdev fmfu_dev_inf = {
+		.size = 0,
+		.offset = 0,
+		.dev = DEVICE_DT_GET_ONE(EXT_FLASH_DEVICE)
+	};
+
+	if (fmfu_dev_inf.dev) {
+		err = nrf_cloud_fota_fmfu_dev_set(&fmfu_dev_inf);
+		if (err < 0) {
+			return err;
+		}
+		full_modem_fota_initd = true;
 	} else {
+		LOG_WRN("Full modem FOTA not initialized; flash device not specified");
+	}
+#endif
+
+	if (!IS_ENABLED(CONFIG_NRF_MODEM_LIB_SYS_INIT)) {
 		modem_lib_init_result = nrf_modem_lib_init(NORMAL_MODE);
 	}
 
@@ -455,15 +493,13 @@ int init(void)
 
 	err = modem_info_params_init(&mdm_param);
 	if (!err) {
-		LOG_INF("Application Name: %s",
-			log_strdup(mdm_param.device.app_name));
-		LOG_INF("nRF Connect SDK version: %s",
-			log_strdup(mdm_param.device.app_version));
+		LOG_INF("Application Name: %s", mdm_param.device.app_name);
+		LOG_INF("nRF Connect SDK version: %s", mdm_param.device.app_version);
 
 		err = modem_info_params_get(&mdm_param);
 		if (!err) {
 			LOG_INF("Modem FW Ver: %s",
-				log_strdup(mdm_param.device.modem_fw.value_string));
+				mdm_param.device.modem_fw.value_string);
 		} else {
 			LOG_WRN("Unable to obtain modem info, error: %d", err);
 		}
@@ -477,7 +513,7 @@ int init(void)
 		return err;
 	}
 
-	LOG_INF("Device ID: %s", log_strdup(device_id));
+	LOG_INF("Device ID: %s", device_id);
 
 	err = dk_buttons_init(button_handler);
 	if (err) {
@@ -550,7 +586,7 @@ static bool validate_in_progress_job(void)
 			fota_status_details = FOTA_STATUS_DETAILS_SUCCESS;
 		} else if (pending_job.validate == NRF_CLOUD_FOTA_VALIDATE_FAIL) {
 			fota_status = NRF_CLOUD_FOTA_FAILED;
-			if (pending_job.type == NRF_CLOUD_FOTA_MODEM) {
+			if (nrf_cloud_fota_is_type_modem(pending_job.type)) {
 				fota_status_details = FOTA_STATUS_DETAILS_MDM_ERR;
 			} else {
 				fota_status_details = FOTA_STATUS_DETAILS_MCU_ERR;
@@ -583,7 +619,7 @@ static int check_for_job(void)
 		return 1;
 	}
 
-	LOG_INF("FOTA Job: %s, type: %d\n", log_strdup(job.id), job.type);
+	LOG_INF("FOTA Job: %s, type: %d\n", job.id, job.type);
 	return 0;
 }
 
@@ -627,8 +663,11 @@ static int start_download(void)
 	case NRF_CLOUD_FOTA_APPLICATION:
 		img_type = DFU_TARGET_IMAGE_TYPE_MCUBOOT;
 		break;
-	case NRF_CLOUD_FOTA_MODEM:
+	case NRF_CLOUD_FOTA_MODEM_DELTA:
 		img_type = DFU_TARGET_IMAGE_TYPE_MODEM_DELTA;
+		break;
+	case NRF_CLOUD_FOTA_MODEM_FULL:
+		img_type = DFU_TARGET_IMAGE_TYPE_FULL_MODEM;
 		break;
 	default:
 		LOG_ERR("Unhandled FOTA type: %d", job.type);
@@ -674,8 +713,24 @@ static void handle_download_succeeded_and_reboot(void)
 
 	err = nrf_cloud_bootloader_fota_slot_set(&pending_job);
 	if (err) {
-		LOG_WRN("Failed to set active B1 slot flag, BOOT FOTA validation my be incorrect");
+		LOG_WRN("Failed to set B1 slot flag, BOOT FOTA validation may be incorrect");
 	}
+
+	(void)nrf_cloud_rest_disconnect(&rest_ctx);
+	(void)lte_lc_deinit();
+
+#if defined(CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE)
+	if (job.type == NRF_CLOUD_FOTA_MODEM_FULL) {
+		LOG_INF("Applying full modem FOTA update...");
+		err = nrf_cloud_fota_fmfu_apply();
+		if (err) {
+			LOG_ERR("Failed to apply full modem FOTA update %d", err);
+			pending_job.validate = NRF_CLOUD_FOTA_VALIDATE_FAIL;
+		} else {
+			pending_job.validate = NRF_CLOUD_FOTA_VALIDATE_PASS;
+		}
+	}
+#endif
 
 	err = save_pending_job();
 	if (err) {
@@ -685,8 +740,6 @@ static void handle_download_succeeded_and_reboot(void)
 		(void)update_job_status();
 	}
 
-	(void)nrf_cloud_rest_disconnect(&rest_ctx);
-	(void)lte_lc_deinit();
 	LOG_INF("Rebooting in 10s to complete FOTA update...");
 	k_sleep(K_SECONDS(10));
 	sys_reboot(SYS_REBOOT_COLD);

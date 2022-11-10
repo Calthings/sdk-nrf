@@ -11,12 +11,12 @@ The following commands list contains AT commands related to DFU requests.
 
 The SLM application supports the following types of cloud-to-device Device Firmware Update (DFU) for the nRF52 Series of MCUs:
 
-* The application DFU based on mcuboot.
+* The application DFU based on MCUboot.
   This is supported by |NCS|.
   To use this, define :ref:`CONFIG_SLM_NRF52_DFU <CONFIG_SLM_NRF52_DFU>` but leave :ref:`CONFIG_SLM_NRF52_DFU_LEGACY <CONFIG_SLM_NRF52_DFU_LEGACY>` undefined.
 * The legacy serial DFU.
   This is supported by the legacy nRF5 SDK.
-  To use this, define both :ref:`CONFIG_SLM_NRF52_DFU <CONFIG_SLM_NRF52_DFU>` and ::ref:`CONFIG_SLM_NRF52_DFU_LEGACY <CONFIG_SLM_NRF52_DFU_LEGACY>`.
+  To use this, define both :ref:`CONFIG_SLM_NRF52_DFU <CONFIG_SLM_NRF52_DFU>` and :ref:`CONFIG_SLM_NRF52_DFU_LEGACY <CONFIG_SLM_NRF52_DFU_LEGACY>`.
 
 .. note::
    You must configure SLM to use ``UART_2`` for the DFU service.
@@ -42,14 +42,14 @@ Syntax
 
   * ``0`` - Cancel DFU (during download only).
   * ``1`` - Start downloading ``<image_1>`` and ``<image_2>``.
-  * ``8`` - Erase mcuboot secondary slot.
+  * ``8`` - Erase MCUboot secondary slot.
 
 * The ``<host>`` parameter is a string.
   It indicates the HTTP or HTTPS server name and optionally a port number.
 * The ``<image_1>`` parameter is a string.
   It indicates the first file image to download.
   If :ref:`CONFIG_SLM_NRF52_DFU_LEGACY <CONFIG_SLM_NRF52_DFU_LEGACY>` is defined, you must set ``<image_1>`` as the path to the init packet file (:file:`.dat`).
-  Otherwise, you must set ``<image_1>`` as the path to the mcuboot application update file (:file:`.bin`).
+  Otherwise, you must set ``<image_1>`` as the path to the MCUboot application update file (:file:`.bin`).
 * The ``<image_2>`` parameter is a string.
   It indicates the second file image to download.
   If :ref:`CONFIG_SLM_NRF52_DFU_LEGACY <CONFIG_SLM_NRF52_DFU_LEGACY>` is defined, you must set ``<image_2>`` as the path to the file image (:file:`.bin`).
@@ -64,15 +64,15 @@ Response syntax
 
 ::
 
-  AT#XDFUGET: <dfu_step>,<info>
+  #XDFUGET: <dfu_step>,<info>
 
 * The ``<dfu_step>`` value is an integer.
   It indicates which image is being downloaded.
 * The ``<info>`` value is an integer.
-  It can assume the following values:
+  It can return the following values:
 
-  * A value between ``1`` and ``100`` - the percentage of the download
-  * Any other value - error code
+  * A value between ``1`` and ``100`` - The percentage of the download.
+  * Any other value - Error code.
 
 Examples
 ~~~~~~~~
@@ -82,9 +82,9 @@ Get the image files for the legacy DFU from ``http://myserver.com/path/*.*``:
 ::
 
    AT#XDFUGET=1,"http://myserver.com","path/nrf52840_xxaa.dat","path/nrf52840_xxaa.bin"
-   AT#XDFUGET: 1, 14
+   #XDFUGET: 1,14
    ...
-   AT#XDFUGET: 1, 100
+   #XDFUGET: 1,100
    OK
 
 Erase the previous image after DFU:
@@ -99,9 +99,9 @@ Get the image files for the |NCS| DFU from ``http://myserver.com/path/*.*``:
 ::
 
    AT#XDFUGET=1,"https://myserver.com","path/nrf52_app_update.bin","",1234
-   AT#XDFUGET: 0, 14
+   #XDFUGET: 0,14
    ...
-   AT#XDFUGET: 0, 100
+   #XDFUGET: 0,100
    OK
 
 Read command
@@ -134,10 +134,59 @@ Examples
 ::
 
    AT#XDFUGET=?
-
    #XDFUGET: (0,1,8),<host>,<image_1>,<image_2>,<sec_tag>
-
    OK
+
+Get file size #XDFUSIZE
+=======================
+
+The ``#XDFUSIZE`` command returns the size of the downloaded (:file:`.bin`) image file.
+
+Set command
+-----------
+
+The set command allows you to get the size of the downloaded image file.
+
+Syntax
+~~~~~~
+
+::
+
+   AT#XDFUSIZE
+
+Response syntax
+~~~~~~~~~~~~~~~
+
+::
+
+  XDFUSIZE: <file_size>,<download_size>
+
+* The ``<file_size>`` is an integer.
+  It indicates the size of the DFU image file.
+* The ``<download_size>`` is an integer.
+  It indicates the size that has been downloaded so far.
+
+Examples
+~~~~~~~~
+
+::
+
+   #XDFUGET: 1,100
+   OK
+
+   AT#XDFUSIZE
+   #XDFUSIZE: 17048,17048
+   OK
+
+Read command
+------------
+
+The read command is not supported.
+
+Test command
+------------
+
+The test command is not supported.
 
 Run request #XDFURUN
 ====================
@@ -174,7 +223,7 @@ Response syntax
 
 ::
 
-  AT#XDFURUN: <dfu_step>,<info>
+  #XDFURUN: <dfu_step>,<info>
 
 * The ``<dfu_step>`` is an integer.
   It indicates which step of the DFU protocol is being executed.
@@ -191,7 +240,7 @@ Run the legacy serial DFU protocol:
    AT#XDFURUN=2
    OK
 
-Run the mcuboot-based DFU protocol:
+Run the MCUboot-based DFU protocol:
 
 ::
 
@@ -220,7 +269,7 @@ Response syntax
 
 ::
 
-   #XDFUGET: <list of op value>,<host>,<image_1><image_2><sec_tag>
+   #XDFURUN: <start_delay>,<mtu>,<pause>
 
 Examples
 ~~~~~~~~
@@ -229,6 +278,6 @@ Examples
 
    AT#XDFURUN=?
 
-   #XDFUGET: <delay>,<mtu>,<pause>
+   #XDFURUN: <start_delay>,<mtu>,<pause>
 
    OK

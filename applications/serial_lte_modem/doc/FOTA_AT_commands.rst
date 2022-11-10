@@ -33,7 +33,7 @@ Syntax
   * ``2`` - Start FOTA for modem delta update.
   * ``6`` - Read application image size and version (optional for application FOTA).
   * ``7`` - Read modem scratch space size and offset (optional for modem FOTA).
-  * ``8`` - Erase mcuboot secondary slot (optional for application FOTA).
+  * ``8`` - Erase MCUboot secondary slot (optional for application FOTA).
   * ``9`` - Erase modem scratch space (optional for modem FOTA).
 
 * The ``<file url>`` parameter is a string.
@@ -118,7 +118,7 @@ Unsolicited notification
 
    #XFOTA: <fota_stage>,<fota_status>[,<fota_info>]
 
-* The ``<fota_stage>`` value is an integer and can assume one of the following values:
+* The ``<fota_stage>`` value is an integer and can return one of the following values:
 
   * ``0`` - Init
   * ``1`` - Download
@@ -127,7 +127,7 @@ Unsolicited notification
   * ``4`` - Downloaded, to be activated
   * ``5`` - Complete
 
-* The ``<fota_status>`` value is an integer and can assume one of the following values:
+* The ``<fota_status>`` value is an integer and can return one of the following values:
 
   * ``0`` - OK
   * ``1`` - Error
@@ -135,7 +135,7 @@ Unsolicited notification
   * ``3`` - Reverted (application FOTA only)
 
 * The ``<fota_info>`` value is an integer.
-  Its value can have different meanings based on the values assumed by ``<fota_stage>`` and ``<fota_status>``.
+  Its value can have different meanings based on the values returned by ``<fota_stage>`` and ``<fota_status>``.
   See the following table:
 
   +-------------------------+----------------------------+-------------------------------------------------------------------------------+

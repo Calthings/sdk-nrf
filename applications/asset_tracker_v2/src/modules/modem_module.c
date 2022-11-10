@@ -5,12 +5,13 @@
  */
 
 #include <zephyr/kernel.h>
-#include <stdio.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <app_event_manager.h>
 #include <math.h>
 #include <modem/lte_lc.h>
 #include <modem/modem_info.h>
+#include <modem/pdn.h>
 
 #define MODULE modem_module
 
@@ -188,16 +189,13 @@ static void lte_evt_handler(const struct lte_lc_evt *const evt)
 			break;
 		}
 
-		if ((evt->nw_reg_status != LTE_LC_NW_REG_REGISTERED_HOME) &&
-		    (evt->nw_reg_status != LTE_LC_NW_REG_REGISTERED_ROAMING)) {
-			SEND_EVENT(modem, MODEM_EVT_LTE_DISCONNECTED);
-			break;
+		if ((evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME) ||
+		    (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING)) {
+			LOG_DBG("Network registration status: %s",
+				evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME ?
+				"Connected - home network" : "Connected - roaming");
 		}
 
-		LOG_DBG("Network registration status: %s",
-			evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME ?
-			"Connected - home network" : "Connected - roaming");
-		SEND_EVENT(modem, MODEM_EVT_LTE_CONNECTED);
 		break;
 	}
 	case LTE_LC_EVT_PSM_UPDATE:
@@ -213,7 +211,7 @@ static void lte_evt_handler(const struct lte_lc_evt *const evt)
 			       "eDRX parameter update: eDRX: %.2f, PTW: %.2f",
 			       evt->edrx_cfg.edrx, evt->edrx_cfg.ptw);
 		if (len > 0) {
-			LOG_DBG("%s", log_strdup(log_buf));
+			LOG_DBG("%s", log_buf);
 		}
 
 		send_edrx_update(evt->edrx_cfg.edrx, evt->edrx_cfg.ptw);
@@ -267,6 +265,35 @@ static void lte_evt_handler(const struct lte_lc_evt *const evt)
 		}
 		break;
 	default:
+		break;
+	}
+}
+
+/* Handler that notifies the application of events related to the default PDN context, CID 0. */
+void pdn_event_handler(uint8_t cid, enum pdn_event event, int reason)
+{
+	ARG_UNUSED(cid);
+
+	switch (event) {
+	case PDN_EVENT_CNEC_ESM:
+		LOG_WRN("Event: PDP context %d, %s", cid, pdn_esm_strerror(reason));
+		break;
+	case PDN_EVENT_ACTIVATED:
+		LOG_DBG("PDN_EVENT_ACTIVATED");
+		{ SEND_EVENT(modem, MODEM_EVT_LTE_CONNECTED); }
+		break;
+	case PDN_EVENT_DEACTIVATED:
+		LOG_DBG("PDN_EVENT_DEACTIVATED");
+		{ SEND_EVENT(modem, MODEM_EVT_LTE_DISCONNECTED); }
+		break;
+	case PDN_EVENT_IPV6_UP:
+		LOG_DBG("PDN_EVENT_IPV6_UP");
+		break;
+	case PDN_EVENT_IPV6_DOWN:
+		LOG_DBG("PDN_EVENT_IPV6_DOWN");
+		break;
+	default:
+		LOG_WRN("Unexpected PDN event!");
 		break;
 	}
 }
@@ -415,7 +442,12 @@ int lwm2m_carrier_event_handler(const lwm2m_carrier_event_t *evt)
 		LOG_ERR("LWM2M_CARRIER_EVENT_ERROR");
 		print_carrier_error(evt);
 
-		if (err->type == LWM2M_CARRIER_ERROR_FOTA_FAIL) {
+		bool fota_error = err->type == LWM2M_CARRIER_ERROR_FOTA_PKG ||
+				  err->type == LWM2M_CARRIER_ERROR_FOTA_PROTO ||
+				  err->type == LWM2M_CARRIER_ERROR_FOTA_CONN ||
+				  err->type == LWM2M_CARRIER_ERROR_FOTA_CONN_LOST ||
+				  err->type == LWM2M_CARRIER_ERROR_FOTA_FAIL;
+		if (fota_error) {
 			SEND_EVENT(modem, MODEM_EVT_CARRIER_FOTA_STOPPED);
 		}
 		break;
@@ -465,12 +497,12 @@ static inline int adjust_rsrp(int input, enum sample_type type)
 	switch (type) {
 	case NEIGHBOR_CELL:
 		if (IS_ENABLED(CONFIG_MODEM_NEIGHBOR_CELLS_DATA_CONVERT_RSRP_TO_DBM)) {
-			return input - 140;
+			return RSRP_IDX_TO_DBM(input);
 		}
 		break;
 	case MODEM_DYNAMIC:
 		if (IS_ENABLED(CONFIG_MODEM_DYNAMIC_DATA_CONVERT_RSRP_TO_DBM)) {
-			return input - 140;
+			return RSRP_IDX_TO_DBM(input);
 		}
 		break;
 	default:
@@ -484,7 +516,7 @@ static inline int adjust_rsrp(int input, enum sample_type type)
 static inline int adjust_rsrq(int input)
 {
 	if (IS_ENABLED(CONFIG_MODEM_NEIGHBOR_CELLS_DATA_CONVERT_RSRQ_TO_DB)) {
-		return round(input * 0.5 - 19.5);
+		return round(RSRQ_IDX_TO_DB(input));
 	}
 
 	return input;
@@ -774,8 +806,15 @@ static int battery_data_get(void)
 static int neighbor_cells_measurement_start(void)
 {
 	int err;
+	enum lte_lc_neighbor_search_type type = LTE_LC_NEIGHBOR_SEARCH_TYPE_DEFAULT;
 
-	err = lte_lc_neighbor_cell_measurement(LTE_LC_NEIGHBOR_SEARCH_TYPE_DEFAULT);
+	if (IS_ENABLED(CONFIG_MODEM_NEIGHBOR_SEARCH_TYPE_EXTENDED_LIGHT)) {
+		type = LTE_LC_NEIGHBOR_SEARCH_TYPE_EXTENDED_LIGHT;
+	} else if (IS_ENABLED(CONFIG_MODEM_NEIGHBOR_SEARCH_TYPE_EXTENDED_COMPLETE)) {
+		type = LTE_LC_NEIGHBOR_SEARCH_TYPE_EXTENDED_COMPLETE;
+	}
+
+	err = lte_lc_neighbor_cell_measurement(type);
 	if (err) {
 		LOG_ERR("Failed to start neighbor cell measurements, error: %d", err);
 		return err;
@@ -855,6 +894,13 @@ static int setup(void)
 		return err;
 	}
 
+	/* Setup a callback for the default PDP context. */
+	err = pdn_default_ctx_cb_reg(pdn_event_handler);
+	if (err) {
+		LOG_ERR("pdn_default_ctx_cb_reg, error: %d", err);
+		return err;
+	}
+
 	err = configure_low_power();
 	if (err) {
 		LOG_ERR("configure_low_power, error: %d", err);
@@ -909,7 +955,7 @@ static void on_state_disconnected(struct modem_msg_data *msg)
 
 	if ((IS_EVENT(msg, app, APP_EVT_LTE_DISCONNECT)) ||
 	    (IS_EVENT(msg, modem, MODEM_EVT_CARRIER_EVENT_LTE_LINK_UP_REQUEST)) ||
-	    (IS_EVENT(msg, cloud, CLOUD_EVT_LTE_DISCONNECT))) {
+	    (IS_EVENT(msg, cloud, CLOUD_EVT_LTE_CONNECT))) {
 		int err;
 
 		err = lte_connect();
@@ -1078,7 +1124,7 @@ static void on_all_states(struct modem_msg_data *msg)
 static void module_thread_fn(void)
 {
 	int err;
-	struct modem_msg_data msg;
+	struct modem_msg_data msg = { 0 };
 
 	self.thread_id = k_current_get();
 

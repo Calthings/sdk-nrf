@@ -14,8 +14,19 @@ Google also provides additional features built upon the Fast Pair standard.
 For detailed information about supported functionalities, see the official `Fast Pair`_ documentation.
 
 .. note::
-   The Fast Pair support in the |NCS| is experimental.
+   The Fast Pair support in the |NCS| is :ref:`experimental <software_maturity>`.
    See :ref:`ug_bt_fast_pair` for details.
+
+Requirements
+************
+
+The sample supports the following development kits:
+
+.. table-from-sample-yaml::
+
+.. include:: /includes/tfm.txt
+
+.. include:: /includes/hci_rpmsg_overlay.txt
 
 Overview
 ********
@@ -39,15 +50,6 @@ The advertising is restarted after disconnection.
 
 See `Fast Pair Advertising`_ for detailed information about discoverable and not discoverable advertising.
 
-Requirements
-************
-
-The sample supports the following development kits:
-
-.. table-from-sample-yaml::
-
-.. include:: /includes/hci_rpmsg_overlay.txt
-
 Fast Pair device registration
 =============================
 
@@ -58,7 +60,7 @@ See :ref:`ug_bt_fast_pair_provisioning` in the Fast Pair user guide for details.
 .. tip::
    The sample provides TX power in the Bluetooth advertising data.
    There is no need to provide the TX power value during device model registration.
-   The device is using only Bluetooth LE, so you must select :guilabel:`Skip connecting audio profiles (e.g. A2DP, HFP)` option when registering the device.
+   The device is using only Bluetooth LE, so you must select **Skip connecting audio profiles (e.g. A2DP, HFP)** option when registering the device.
 
 Seeker device
 =============
@@ -86,10 +88,19 @@ Buttons
 =======
 
 Button 1:
-   Toggles between Fast Pair discoverable and not discoverable advertising.
+   Toggles between three Fast Pair advertising modes:
+
+   * Fast Pair discoverable advertising.
+   * Fast Pair not discoverable advertising (with the show UI indication).
+   * Fast Pair not discoverable advertising (with the hide UI indication).
 
    .. note::
-       The advertising is disabled while the Fast Pair Provider is connected to a Bluetooth Central.
+       The Bluetooth advertising is active only until the Fast Pair Provider connects to a Bluetooth Central.
+       After the connection, you can still switch the advertising modes, but the switch will come into effect only after disconnection.
+       The discoverable advertising is automatically switched to the not discoverable advertising with the show UI indication mode in the following cases:
+
+       * After 10 minutes of active advertising.
+       * After a Bluetooth Central successfully pairs.
 
 Button 2:
    Increases audio volume of the connected Bluetooth Central.
@@ -110,10 +121,11 @@ LED 2:
    * Off if there is no Central connected.
 
 LED 3:
-   Depending on the discoverability setting:
+   Depending on the Fast Pair advertising mode setting:
 
    * On if the device is Fast Pair discoverable.
-   * Off if the device is Fast Pair not discoverable.
+   * Blinks with 0.5 secs interval if the selected mode is the Fast Pair not discoverable advertising with the show UI indication.
+   * Blinks with 1.5 secs interval if the selected mode is the Fast Pair not discoverable advertising with the hide UI indication.
 
 Configuration
 *************
@@ -125,7 +137,7 @@ Building and running
 
 .. |sample path| replace:: :file:`samples/bluetooth/peripheral_fast_pair`
 
-.. include:: /includes/build_and_run.txt
+.. include:: /includes/build_and_run_ns.txt
 
 When building the sample, you must provide the Fast Pair Model ID (:c:macro:`FP_MODEL_ID`) and the Fast Pair Anti Spoofing Key (:c:macro:`FP_ANTI_SPOOFING_KEY`) as CMake options.
 See :ref:`ug_bt_fast_pair_provisioning` for detailed guide.
@@ -137,7 +149,7 @@ See :ref:`ug_bt_fast_pair_provisioning` for detailed guide.
 Testing
 =======
 
-After programming the sample to your development kit, test it by performing the following steps:
+|test_sample|
 
 1. |connect_terminal_specific|
    The sample provides Fast Pair debug logs to inform about state of the Fast Pair procedure.
@@ -145,12 +157,12 @@ After programming the sample to your development kit, test it by performing the 
 #. Observe that **LED 1** is blinking (firmware is running) and **LED 3** is turned on (device is Fast Pair discoverable).
    This means that the device is now working as Fast Pair Provider and is advertising.
 #. On the Android device, go to :guilabel:`Settings` > :guilabel:`Google` > :guilabel:`Devices & sharing` (or :guilabel:`Device connections`, depending on your Android device configuration) > :guilabel:`Devices`.
-#. Move the Andoid device close to the Fast Pair Provider that is advertising.
+#. Move the Android device close to the Fast Pair Provider that is advertising.
 #. Wait for Android device's notification about the detected Fast Pair Provider.
    The notification is similar to the following one:
 
    .. figure:: /images/bt_fast_pair_discoverable_notification.png
-      :scale: 75 %
+      :scale: 33 %
       :alt: Fast Pair discoverable advertising Android notification
 
    The device model name and displayed logo depend on the data provided during the device model registration.
@@ -159,7 +171,7 @@ After programming the sample to your development kit, test it by performing the 
    **LED 2** turns on to indicate that the device is connected with the Bluetooth Central.
 
    .. note::
-      Some Android devices might disconnect right after the Fast Pair procedure is finished.
+      Some Android devices might disconnect right after the Fast Pair procedure has completed.
       Go to :guilabel:`Settings` > :guilabel:`Bluetooth` and tap on the bonded Fast Pair Provider to reconnect.
 
    The connected Fast Pair Provider can now be used to control audio volume of the Bluetooth Central.
@@ -181,13 +193,17 @@ Test not discoverable advertising by completing `Testing`_ and the following add
       .. note::
          Do not remove Bluetooth bond information related to the Fast Pair Provider.
 
+      After disconnection, the provider automatically switches from the discoverable advertising to the not discoverable advertising with the show UI indication mode.
+      **LED 3** is blinking rapidly.
+
 #. Make sure that the Fast Pair Provider is added to :guilabel:`Saved devices` on the Android device that was used for `Testing`_:
 
    a. Go to :guilabel:`Settings` > :guilabel:`Google` > :guilabel:`Devices & sharing` (or :guilabel:`Device connections`) > :guilabel:`Devices` > :guilabel:`Saved devices`.
    #. Verify that the paired device is appearing on the list.
 
-#. Press **Button 1** to switch to the Fast Pair not discoverable advertising.
-   **LED 3** turns off.
+#. If you want to test the Fast Pair not discoverable advertising with the hide UI indication mode, press **Button 1**.
+   **LED 3** starts blinking slowly.
+
 #. Wait until the Fast Pair Provider is added to :guilabel:`Saved devices` on the second Android device:
 
    a. Go to :guilabel:`Settings` > :guilabel:`Google` > :guilabel:`Devices & sharing` (or :guilabel:`Device connections`) > :guilabel:`Devices` > :guilabel:`Saved devices`.
@@ -195,13 +211,17 @@ Test not discoverable advertising by completing `Testing`_ and the following add
    #. If the device does not appear on the list, wait until the data is synced between phones.
 
 #. Move the second Android device close to the Fast Pair Provider.
-   A notification similar to the following one appears:
+   If the device is in the show UI indication advertising mode, a notification similar to the following one appears:
 
    .. figure:: /images/bt_fast_pair_not_discoverable_notification.png
       :scale: 50 %
       :alt: Fast Pair not discoverable advertising Android notification
 
-#. Tap on the notification to trigger the Fast Pair procedure.
+   If the device is in the hide UI indication advertising mode, no notification appears.
+   This is because the device advertises, but does not want to be paired with.
+   You can verify that the device is advertising using the `nRF Connect for Mobile`_ application.
+
+#. In the show UI indication mode, when the notification appears, tap on it to trigger the Fast Pair procedure.
 #. Wait for the notification about successful Fast Pair procedure.
    **LED 2** is turned on to inform that the device is connected with the Bluetooth Central.
 
@@ -220,3 +240,7 @@ This sample uses the :ref:`bt_fast_pair_readme` and its dependencies and is conf
 See :ref:`ug_bt_fast_pair` for details about integrating Fast Pair in the |NCS|.
 
 The :ref:`bt_fast_pair_provision_script` is used by the build system to automatically generate the hexadecimal file that contains Fast Pair Model ID and Anti Spoofing Private Key.
+
+The sample also uses the following secure firmware component:
+
+* :ref:`Trusted Firmware-M <ug_tfm>`

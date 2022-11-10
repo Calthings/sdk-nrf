@@ -300,11 +300,12 @@ int cloud_wrap_init(cloud_wrap_evt_handler_t event_handler)
 		return err;
 	}
 
-	/* Set null character at the end of the device IMEI. */
-	imei_buf[AWS_CLOUD_CLIENT_ID_LEN] = 0;
-
 	strncpy(client_id_buf, imei_buf, sizeof(client_id_buf) - 1);
 
+	/* Explicitly null terminate client_id_buf to be sure that we carry a
+	 * null terminated buffer after strncpy().
+	 */
+	client_id_buf[sizeof(client_id_buf) - 1] = '\0';
 #else
 	snprintf(client_id_buf, sizeof(client_id_buf), "%s",
 		 CONFIG_CLOUD_CLIENT_ID);
@@ -331,7 +332,7 @@ int cloud_wrap_init(cloud_wrap_evt_handler_t event_handler)
 	LOG_DBG(" The Asset Tracker v2 has started");
 	LOG_DBG(" Version:     %s",
 		CONFIG_ASSET_TRACKER_V2_APP_VERSION);
-	LOG_DBG(" Client ID:   %s", log_strdup(client_id_buf));
+	LOG_DBG(" Client ID:   %s", client_id_buf);
 	LOG_DBG(" Cloud:       %s", "AWS IoT");
 	LOG_DBG(" Endpoint:    %s",
 		CONFIG_AWS_IOT_BROKER_HOST_NAME);

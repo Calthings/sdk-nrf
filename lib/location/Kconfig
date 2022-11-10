@@ -39,14 +39,14 @@ config LOCATION_METHODS_LIST_SIZE
 if LOCATION_METHOD_GNSS
 
 config LOCATION_METHOD_GNSS_AGPS_EXTERNAL
-	bool "Requesting A-GPS data is handled by the application outside of Location library."
+	bool "Requesting A-GPS data is handled by the application outside of Location library"
 	depends on NRF_CLOUD_AGPS
 	help
 	  Allow application to download the A-GPS data and merely feed it to Location library for
 	  processing.
 
 config LOCATION_METHOD_GNSS_PGPS_EXTERNAL
-	bool "Requesting P-GPS data is handled by the application outside of Location library."
+	bool "Requesting P-GPS data is handled by the application outside of Location library"
 	depends on NRF_CLOUD_PGPS
 	help
 	  Allow application to download the P-GPS data and merely feed it to Location library for
@@ -74,10 +74,6 @@ config LOCATION_METHOD_GNSS_VISIBILITY_DETECTION_SAT_LIMIT
 endif # LOCATION_METHOD_GNSS
 
 if LOCATION_METHOD_WIFI
-
-config LOCATION_METHOD_WIFI_DEV_NAME
-	string "Used Wi-Fi device name"
-	default "esp8266"
 
 config LOCATION_METHOD_WIFI_SERVICE_NRF_CLOUD
 	bool "nRF Cloud location service"

@@ -115,7 +115,7 @@ static void method_gnss_manage_pgps(struct k_work *work)
 	ARG_UNUSED(work);
 	int err;
 
-	LOG_DBG("Sending prediction to modem...");
+	LOG_DBG("Sending prediction to modem (ephe: 0x%08x)...", pgps_agps_request.sv_mask_ephe);
 
 	err = nrf_cloud_pgps_inject(prediction, &pgps_agps_request);
 	if (err) {
@@ -132,8 +132,12 @@ void method_gnss_pgps_handler(struct nrf_cloud_pgps_event *event)
 {
 	LOG_DBG("P-GPS event type: %d", event->type);
 
-	if ((event->type == PGPS_EVT_AVAILABLE) ||
-	    ((event->type == PGPS_EVT_READY) && (event->prediction != NULL))) {
+	if (event->type == PGPS_EVT_READY) {
+		/* P-GPS has finished downloading predictions; request the current prediction. */
+		k_work_submit_to_queue(location_core_work_queue_get(),
+				       &method_gnss_notify_pgps_work);
+	} else if (event->type == PGPS_EVT_AVAILABLE) {
+		/* Inject the specified prediction into the modem. */
 		prediction = event->prediction;
 		k_work_submit_to_queue(location_core_work_queue_get(),
 				       &method_gnss_manage_pgps_work);
@@ -403,6 +407,7 @@ static void method_gnss_request_assistance(void)
 		pgps_agps_request.sv_mask_ephe = agps_request.sv_mask_ephe;
 		agps_request.sv_mask_ephe = 0;
 		agps_request.sv_mask_alm = 0;
+		LOG_DBG("P-GPS request from modem (ephe: 0x%08x)", pgps_agps_request.sv_mask_ephe);
 	}
 
 	LOG_DBG("A-GPS request from modem (ephe: 0x%08x alm: 0x%08x flags: 0x%02x)",
@@ -433,7 +438,7 @@ static void method_gnss_request_assistance(void)
 }
 #endif /* defined(CONFIG_NRF_CLOUD_AGPS) || defined(CONFIG_NRF_CLOUD_PGPS) */
 
-static void method_gnss_event_handler(int event)
+void method_gnss_event_handler(int event)
 {
 	switch (event) {
 	case NRF_MODEM_GNSS_EVT_PVT:
@@ -627,6 +632,7 @@ static void method_gnss_pvt_work_fn(struct k_work *item)
 
 	if (nrf_modem_gnss_read(&pvt_data, sizeof(pvt_data), NRF_MODEM_GNSS_DATA_PVT) != 0) {
 		LOG_ERR("Failed to read PVT data from GNSS");
+		location_core_event_cb_error();
 		return;
 	}
 

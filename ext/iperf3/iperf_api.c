@@ -60,7 +60,7 @@
 #include <sys/time.h>
 
 #if defined(CONFIG_NRF_IPERF3_INTEGRATION)
-#if defined (CONFIG_NRF_MODEM_LIB_TRACE_ENABLED)
+#if defined (CONFIG_NRF_MODEM_LIB_TRACE)
 #include <nrf_modem_at.h>
 #endif
 #endif
@@ -999,7 +999,7 @@ int iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
 		{ "debug", no_argument, NULL, 'd' },
 #if defined(CONFIG_NRF_IPERF3_INTEGRATION)
 		{ "manual", no_argument, NULL, 'm' }, /* -m or --manual instead of help, because shell is stoling -h and --help */
-#if defined (CONFIG_NRF_MODEM_LIB_TRACE_ENABLED)
+#if defined (CONFIG_NRF_MODEM_LIB_TRACE)
 		/* added */
 		{ "curr-mdm-traces", no_argument, NULL, NRF_OPT_CURRENT_MDM_TRACES },
 #endif
@@ -1464,7 +1464,7 @@ int iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
 			client_flag = 1;
 			break;
 #if defined(CONFIG_NRF_IPERF3_INTEGRATION)
-#if defined (CONFIG_NRF_MODEM_LIB_TRACE_ENABLED)
+#if defined (CONFIG_NRF_MODEM_LIB_TRACE)
 		case NRF_OPT_CURRENT_MDM_TRACES:
 			test->curr_mdm_traces = true;
 			break;
@@ -1634,7 +1634,7 @@ int iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
 #endif
 	}
 #if defined(CONFIG_NRF_IPERF3_INTEGRATION)
-#if defined (CONFIG_NRF_MODEM_LIB_TRACE_ENABLED)
+#if defined (CONFIG_NRF_MODEM_LIB_TRACE)
     if (!test->curr_mdm_traces) {
 
     	/* Let's set more lightweight traces for getting better perf: */
@@ -2970,7 +2970,7 @@ static cJSON
 
     fd_set read_set;
 
-    uint32_t hsize, nsize;
+    uint32_t hsize = 0, nsize;
     char *str = NULL;
     cJSON *json = NULL;
     int rc;
@@ -3018,14 +3018,33 @@ static cJSON
                      * structure, NULL if there was an error.
                      */
 #if defined (CONFIG_POSIX_API)
-                    if (read(test->ctrl_sck, &nsize, sizeof(nsize)) > 0)
+                    if ((rc = read(test->ctrl_sck, &nsize, sizeof(nsize))) > 0)
 #else
-                    if (recv(test->ctrl_sck, &nsize, sizeof(nsize), 0) > 0)
+                    if ((rc = recv(test->ctrl_sck, &nsize, sizeof(nsize), 0)) > 0)
 #endif
                     {
                         hsize = ntohl(nsize);
-                        str = (char *) calloc(sizeof(char), hsize+1);   /* +1 for trailing null */
-                    }
+                        str = (char *) calloc(sizeof(char), hsize + 1);   /* +1 for trailing null */
+			if (str == NULL) {
+                        	iperf_printf(
+					test, 
+					"ERROR: No memory for parsing json results of len %d\n",
+					hsize);
+				i_errno = IERECVRESULTS;
+				break;
+			} else {
+				if (test->debug) {
+                        		iperf_printf(
+						test,
+						"Expecting %d bytes json result response\n",
+						hsize);
+				}
+			}
+                    } else if (rc < 0) {
+                	iperf_printf(test, "ERROR: Cannot read json length, err %d\n", rc);
+			i_errno = IERECVRESULTS;
+			break;
+		    }
                 }
                 else
                 {
@@ -3043,11 +3062,34 @@ static cJSON
                          */
                         if (rc == hsize) {
                             json = cJSON_Parse(str);
+			    if (!json) {
+				iperf_printf(test, "ERROR: cannot parse json result (len %d) from server\n", hsize);
+				if (test->debug) {
+					int i = 0;
+
+					iperf_printf(test, "DEBUG: Dumping received json expected data:\n");
+					for (i = 0; i < hsize; i++) {
+						iperf_printf(test, "str[%d]: 0x%02x ", i, str[i]);
+					}
+					iperf_printf(test, "\n");
+				}
+			    	i_errno = IERECVRESULTS;
+			    	break;
+			    }
+                        } else {
+                            iperf_printf(
+				test,
+				"WARNING:  Size of data read does not correspond"
+				"to offered length, rc: %d hsize: %d\n",
+				rc, hsize);
+			    i_errno = IERECVRESULTS;
+			    break;
                         }
-                        else {
-                            iperf_printf(test, "WARNING:  Size of data read does not correspond to offered length\n");
-                            break;
-                        }
+                    } else if (rc < 0)
+                    {
+                        iperf_printf(test, "read() failed: rc %d, errno %d", rc, errno);
+			i_errno = IERECVRESULTS;
+                        break;
                     }
                 }
             }
@@ -3408,7 +3450,7 @@ void iperf_free_test(struct iperf_test *test)
 	struct iperf_stream *sp;
 
 #if defined(CONFIG_NRF_IPERF3_INTEGRATION)
-#if defined (CONFIG_NRF_MODEM_LIB_TRACE_ENABLED)
+#if defined (CONFIG_NRF_MODEM_LIB_TRACE)
   if (!test->curr_mdm_traces) {
     static const char default_mdm_trace[] = "AT%%XMODEMTRACE=1,2";
 

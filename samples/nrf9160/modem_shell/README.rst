@@ -16,7 +16,7 @@ The sample supports the following development kits:
 
 .. table-from-sample-yaml::
 
-.. include:: /includes/spm.txt
+.. include:: /includes/tfm.txt
 
 Overview
 ********
@@ -27,6 +27,9 @@ MoSh uses the LTE link control driver to establish an LTE connection and initial
 
 The subsections list the MoSh features and show shell command examples for their usage.
 
+.. note::
+   To learn more about using a MoSh command, run the command without any parameters.
+
 LTE link control
 ================
 
@@ -35,6 +38,11 @@ MoSh command: ``link``
 LTE link control changes and queries the state of the LTE connection.
 Many of the changes are applied when going to online mode for the next time.
 You can store some link subcommand parameters into settings, which are persistent between sessions.
+
+3GPP Release 14 features are enabled by default, which means they are set when going into normal mode and when booting up.
+For the list of supported features, refer to `3GPP Release 14 features AT command`_.
+To disable these features in normal mode,  use the ``link funmode --normal_no_rel14`` command.
+During autoconnect in bootup, use the ``link nmodeauto --enable_no_rel14`` command.
 
 Examples
 --------
@@ -84,6 +92,13 @@ Examples
      link nmodeat --mem1 "at%xbandlock=2,\"100\""
      link funmode --normal
 
+* Write periodic search parameters with two patterns, read the parameters and start modem network search operation:
+
+  .. code-block:: console
+
+     link search --write --search_cfg="0,1,1" --search_pattern_table="10,10,30" --search_pattern_range="50,300,10,20"
+     link search --read
+     link search --start
 
 ----
 
@@ -94,6 +109,15 @@ MoSh command: ``at``
 
 You can use the AT command module to send AT commands to the modem, individually or
 in a separate plain AT command mode where also pipelining of AT commands is supported.
+
+.. note::
+   Using AT commands that read information from the modem is safe together with MoSh commands.
+   However, it is not recommended to write any values with AT commands and use MoSh commands among them.
+   If you mix AT commands and MoSh commands, the internal state of MoSh might get out of synchronization and result in unexpected behavior.
+
+.. note::
+   When using ``at`` command, any quotation marks ("), apostrophes (') and backslashes (\) within the AT command syntax must be escaped with a backslash (\).
+   The percentage sign (%) is often needed and can be written as is.
 
 Examples
 --------
@@ -109,6 +133,12 @@ Examples
   .. code-block:: console
 
      at at%NBRGRSRP
+
+* Escape quotation marks in a command targeting the network search to a specific operator:
+
+  .. code-block:: console
+
+     at AT+COPS=1,2,\"24407\"
 
 * Enable AT command events:
 
@@ -343,6 +373,10 @@ Examples
      sock rai -i 0 --rai_last
      sock send -i 0 -d testing
 
+  When both 3GPP Release 13 Control Plane (CP) Release Assistance Indication (RAI) and 3GPP Release 14 Access Stratum (AS) RAI are enabled,
+  which can be the case for NB-IoT, both are signalled.
+  Which RAI takes effect depends on the network configuration and prioritization.
+
 * List open sockets:
 
   .. code-block:: console
@@ -399,13 +433,13 @@ Examples
 
   .. code-block:: console
 
-     location get --method wifi --wifi_timeout 60 --method cellular --cellular_service nrf
+     location get --method wifi --wifi_timeout 60000 --method cellular --cellular_service nrf
 
 * Retrieve location periodically every hour with GNSS and if not found, use cellular positioning:
 
   .. code-block:: console
 
-     location get --interval 3600 --method gnss --gnss_timeout 300 --method cellular
+     location get --interval 3600 --method gnss --gnss_timeout 300000 --method cellular
 
 * Cancel ongoing location request or periodic location request:
 
@@ -538,6 +572,26 @@ Examples
 
 ----
 
+Running stored commands after startup
+=====================================
+
+MoSh command: ``startup_cmd``
+
+You can store up to three MoSh commands to run on start/bootup.
+By default, commands are run after the default PDN context is activated,
+but can be set to run N seconds after bootup.
+
+Examples
+--------
+
+* Starting periodic location acquiring after LTE has been connected with both cellular and GNSS, including sending the location to nRF Cloud:
+
+  .. code-block:: console
+
+     startup_cmd --mem1 "location get --mode all --method cellular --method gnss --gnss_cloud_pvt --interval 15"
+
+----
+
 Cloud
 =====
 
@@ -564,11 +618,11 @@ Examples
 Remote control using nRF Cloud
 ==============================
 
-Once you have established an MQTT connection to nRF Cloud using the ``cloud`` command, you can use the :guilabel:`Terminal` window in the nRF Cloud portal to execute MoSh commands to the device.
+Once you have established an MQTT connection to nRF Cloud using the ``cloud`` command, you can use the **Terminal** window in the nRF Cloud portal to execute MoSh commands to the device.
 This feature enables full remote control of the MoSh application running on a device that is connected to cloud.
-MoSh output, such as responses to commands and other notifications can be echoed to the ``messages`` endpoint and the :guilabel:`Terminal` window of the nRF Cloud portal.
+MoSh output, such as responses to commands and other notifications can be echoed to the ``messages`` endpoint and the **Terminal** window of the nRF Cloud portal.
 Use the ``print cloud`` command to enable this behavior.
-The data format of the input data in the :guilabel:`Terminal` window must be JSON.
+The data format of the input data in the **Terminal** window must be JSON.
 
 Examples
 --------
@@ -579,13 +633,13 @@ Examples
 
      cloud connect
 
-* To request the device location, enter the following command in the :guilabel:`Terminal` window of the nRF Cloud portal:
+* To request the device location, enter the following command in the **Terminal** window of the nRF Cloud portal:
 
    .. code-block:: console
 
      {"appId":"MODEM_SHELL", "data":"location get --method cellular"}
 
-  The device location appears in the :guilabel:`Location` window.
+  The device location appears in the **Location** window.
 
 * An AT command is sent to the modem:
 
@@ -594,6 +648,27 @@ Examples
      {"appId":"MODEM_SHELL", "data":"at AT+COPS=1,2,\\\"24412\\\""}
 
   Note the syntax for escaping the quotation marks.
+
+----
+
+.. _uart_command:
+
+UART
+====
+
+Disable UARTs for power measurement purposes.
+
+* Disable UARTs for 30 seconds:
+
+  .. code-block:: console
+
+     uart disable 30
+
+* Disable UARTs whenever modem is in sleep state:
+
+  .. code-block:: console
+
+     uart during_sleep disable
 
 Configuration
 *************
@@ -658,8 +733,22 @@ CONFIG_MOSH_PPP
 .. _CONFIG_MOSH_REST:
 
 CONFIG_MOSH_REST
-   Enable REST feature in modem shell
+   Enable REST client feature in modem shell.
 
+.. _CONFIG_MOSH_CLOUD_REST:
+
+CONFIG_MOSH_CLOUD_REST
+   Enable nRF Cloud REST feature in modem shell.
+
+.. _CONFIG_MOSH_CLOUD_MQTT:
+
+CONFIG_MOSH_CLOUD_MQTT
+   Enable nRF Cloud MQTT connection feature in modem shell.
+
+.. _CONFIG_MOSH_AT_CMD_MODE:
+
+CONFIG_MOSH_AT_CMD_MODE
+   Enable AT command mode feature in modem shell.
 
 .. note::
    You may not be able to use all features at the same time due to memory restrictions.
@@ -677,9 +766,11 @@ Building and running
 
 .. |sample path| replace:: :file:`samples/nrf9160/modem_shell`
 
-.. include:: /includes/build_and_run.txt
+.. include:: /includes/build_and_run_ns.txt
 
 See :ref:`cmake_options` for instructions on how to provide CMake options, for example to use a configuration overlay.
+
+.. _dk_buttons:
 
 DK buttons
 ==========
@@ -697,8 +788,24 @@ LED indications
 
 The LEDs have the following functions:
 
-LED 1:
+LED 3 (nRF9160 DK)/Blue LED (Thingy:91):
    Indicates the LTE registration status.
+
+Power measurements
+==================
+
+You can perform power measurements using the `Power Profiler Kit II (PPK2)`_.
+See the documentation for instructions on how to setup the DK for power measurements.
+The documentation shows, for example, how to connect the wires for both source meter and ampere meter modes.
+The same instructions are valid also when using a different meter.
+
+To achieve satisfactory power measurement results, it is often desirable to disable UART interfaces unless their contribution to overall power consumption is of interest.
+In MoSh, perform one of the following actions:
+
+  * Use MoSh command ``uart`` to disable UARTs as in :ref:`uart_command`
+  * Press **Button 2** in DK to enable or disable UARTs as instructed in :ref:`dk_buttons`
+
+For more information about application power optimizations, refer to :ref:`app_power_opt`.
 
 Testing
 =======
@@ -783,9 +890,9 @@ To program the certificates and connect to nRF Cloud, complete the following ste
 
    1. Open the `nRF Cloud`_ portal.
    #. Click the large plus sign in the upper left corner.
-   #. Enter the device ID from MoSh in the :guilabel:`Device ID` field.
+   #. Enter the device ID from MoSh in the **Device ID** field.
 
-   When the device has been added, the message :guilabel:`Device added to account. Waiting for it to connect...` appears.
+   When the device has been added, the message **Device added to account. Waiting for it to connect...** appears.
    When the message disappears, click :guilabel:`Devices` on the left side menu.
    Your MoSh device is now visible in the list.
 #. Send MoSh device information to nRF Cloud:
@@ -802,7 +909,7 @@ To program the certificates and connect to nRF Cloud, complete the following ste
       mosh:~$ location get --method cellular
 
 #. As a success response, the location is printed in the MoSh terminal.
-#. Open the entry for your device in the :guilabel:`Devices` view.
+#. Open the entry for your device in the **Devices** view.
 #. Observe that location and device information are shown in the device page.
 
 ESP8266 Wi-Fi support
@@ -933,6 +1040,79 @@ For example:
 
    west build -p -b nrf9160dk_nrf9160_ns -- -DOVERLAY_CONFIG=overlay-non-offloading.conf
 
+BT shell support
+================
+
+To build the MoSh sample with Zephyr BT shell command support, use the :file:`-DDTC_OVERLAY_FILE=bt.overlay` and :file:`-DOVERLAY_CONFIG=overlay-bt.conf` options.
+When running this configuration, you can perform BT scanning and advertising using the ``bt`` command.
+
+Compile as follows:
+
+.. code-block:: console
+
+   west build -p -b nrf9160dk_nrf9160_ns -- -DDTC_OVERLAY_FILE="bt.overlay" -DOVERLAY_CONFIG="overlay-bt.conf"
+
+Additionally, you need to program the nRF52840 side of the nRF9160 DK as instructed in :ref:`lte_sensor_gateway`.
+
+Compile the :ref:`bluetooth-hci-lpuart-sample` sample as follows:
+
+.. code-block:: console
+
+   west build -p -b nrf9160dk_nrf52840
+
+The following example demonstrates how to use MoSh with two development kits, where one acts as a broadcaster and the other one as an observer.
+
+DK #1, where MoSh is used in broadcaster (advertising) role:
+
+   .. code-block:: console
+
+      mosh:~$ bt init
+      Bluetooth initialized
+      Settings Loaded
+      mosh:~$ bt name mosh-adv
+      mosh:~$ bt name
+      Bluetooth Local Name: mosh-adv
+      mosh:~$ bt advertise scan
+      Advertising started
+
+      /* And when done: */
+      mosh:~$ bt advertise off
+      Advertising stopped
+      mosh:~$
+
+DK #2, where MoSh is used in observer (scanning) role:
+
+   .. code-block:: console
+
+      mosh:~$ bt init
+      Bluetooth initialized
+      Settings Loaded
+      mosh:~$ bt name mosh-scanner
+      mosh:~$ bt name
+      Bluetooth Local Name: mosh-scanner
+      mosh:~$ bt scan-filter-set name mosh-adv
+      mosh:~$ bt scan on
+      Bluetooth active scan enabled
+      [DEVICE]: 11:22:33:44:55:66(random), AD evt type 4, RSSI -42 mosh-adv C:0 S:1 D:0 SR:1 E:0 Prim: LE 1M, Secn: No packets, Interval: 0x0000 (0 ms), SID: 0xff
+      ...
+
+      /* And when done: */
+      mosh:~$ bt scan off
+      Scan successfully stopped
+      mosh:~$
+
+SEGGER RTT support
+==================
+
+To build the MoSh sample with SEGGER's Real Time Transfer (RTT) support, use the ``-DOVERLAY_CONFIG=overlay-rtt.conf`` option.
+When running this configuration, RTT is used as the shell backend instead of UART.
+
+For example:
+
+.. code-block:: console
+
+   west build -p -b nrf9160dk_nrf9160_ns -- -DOVERLAY_CONFIG=overlay-rtt.conf
+
 References
 **********
 
@@ -951,3 +1131,7 @@ This sample uses the following |NCS| libraries:
 This sample uses the following `sdk-nrfxlib`_ libraries:
 
 * :ref:`nrfxlib:nrf_modem`
+
+In addition, it uses the following secure firmware component:
+
+* :ref:`Trusted Firmware-M <ug_tfm>`

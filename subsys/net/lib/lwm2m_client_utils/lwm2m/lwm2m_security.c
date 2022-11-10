@@ -79,9 +79,9 @@ static int write_credential_type(int sec_obj_inst, int sec_tag, int res_id,
 	char psk_hex[65];
 
 	snprintk(pathstr, sizeof(pathstr), "0/%d/%d", sec_obj_inst, res_id);
-	ret = lwm2m_engine_get_res_data(pathstr, &cred, &cred_len, &cred_flags);
+	ret = lwm2m_engine_get_res_buf(pathstr, &cred, NULL, &cred_len,  &cred_flags);
 	if (ret < 0) {
-		LOG_ERR("Unable to get resource data for '%s'", log_strdup(pathstr));
+		LOG_ERR("Unable to get resource data for '%s'", pathstr);
 		return ret;
 	}
 
@@ -113,9 +113,9 @@ static bool sec_obj_has_credentials(int sec_obj_inst)
 	char pathstr[sizeof("0/0/0")];
 
 	snprintk(pathstr, sizeof(pathstr), "0/%d/%d", sec_obj_inst, SECURITY_SECRET_KEY_ID);
-	ret = lwm2m_engine_get_res_data(pathstr, &cred, &cred_len, &cred_flags);
+	ret = lwm2m_engine_get_res_buf(pathstr, &cred, NULL, &cred_len, &cred_flags);
 	if (ret < 0) {
-		LOG_ERR("Unable to get resource data for '%s'", log_strdup(pathstr));
+		LOG_ERR("Unable to get resource data for '%s'", pathstr);
 		return false;
 	}
 
@@ -262,7 +262,7 @@ static int set(const char *key, size_t len_rd, settings_read_cb read_cb, void *c
 		return -ENOENT;
 	}
 
-	LOG_DBG("Loading \"%s\"", log_strdup(key));
+	LOG_DBG("Loading \"%s\"", key);
 
 	ret = lwm2m_string_to_path(key, &path, '/');
 	if (ret) {
@@ -280,12 +280,12 @@ static int set(const char *key, size_t len_rd, settings_read_cb read_cb, void *c
 		}
 		ret = lwm2m_engine_create_obj_inst(o_path);
 		if (ret) {
-			LOG_ERR("Failed to create object instance %s", log_strdup(o_path));
+			LOG_ERR("Failed to create object instance %s", o_path);
 			return ret;
 		}
 	}
 
-	if (lwm2m_engine_get_res_data((char *)key, &buf, &len, &flags) != 0) {
+	if (lwm2m_engine_get_res_buf((char *)key, &buf, &len, NULL, &flags) != 0) {
 		LOG_ERR("Failed to get data pointer");
 		return -ENOENT;
 	}
@@ -295,6 +295,8 @@ static int set(const char *key, size_t len_rd, settings_read_cb read_cb, void *c
 		LOG_ERR("Failed to read data");
 		return -ENOENT;
 	}
+
+	lwm2m_engine_set_res_data_len((char *)key,  len + 1);
 
 	if (path.obj_id == LWM2M_OBJECT_SECURITY_ID && path.res_id == SECURITY_BOOTSTRAP_FLAG_ID) {
 		bool is_bootstrap;
@@ -322,9 +324,9 @@ static int write_to_settings(int obj, int inst, int res, uint8_t *data, uint16_t
 
 	snprintk(path, sizeof(path), SETTINGS_PREFIX "/%d/%d/%d", obj, inst, res);
 	if (settings_save_one(path, data, data_len)) {
-		LOG_ERR("Failed to store %s", log_strdup(path));
+		LOG_ERR("Failed to store %s", path);
 	}
-	LOG_DBG("Permanently stored %s", log_strdup(path));
+	LOG_DBG("Permanently stored %s", path);
 	return 0;
 }
 
@@ -334,7 +336,7 @@ static void delete_from_storage(int obj, int inst, int res)
 
 	snprintk(path, sizeof(path), SETTINGS_PREFIX "/%d/%d/%d", obj, inst, res);
 	settings_delete(path);
-	LOG_DBG("Deleted %s", log_strdup(path));
+	LOG_DBG("Deleted %s", path);
 }
 
 
@@ -463,17 +465,20 @@ static int init_default_security_obj(struct lwm2m_ctx *ctx, char *endpoint)
 	int ret;
 	char *server_url;
 	uint16_t server_url_len;
-	uint8_t server_url_flags;
 
 	/* Server URL */
-	ret = lwm2m_engine_get_res_data(LWM2M_PATH(LWM2M_OBJECT_SECURITY_ID, 0,
+	ret = lwm2m_engine_get_res_buf(LWM2M_PATH(LWM2M_OBJECT_SECURITY_ID, 0,
 						   SECURITY_SERVER_URI_ID),
-					(void **)&server_url, &server_url_len, &server_url_flags);
+					(void **)&server_url, &server_url_len, NULL, NULL);
 	if (ret < 0) {
 		return ret;
 	}
 
-	snprintk(server_url, server_url_len, "%s", CONFIG_LWM2M_CLIENT_UTILS_SERVER);
+	server_url_len = snprintk(server_url, server_url_len, "%s",
+				  CONFIG_LWM2M_CLIENT_UTILS_SERVER);
+
+	lwm2m_engine_set_res_data_len(LWM2M_PATH(LWM2M_OBJECT_SECURITY_ID, 0,
+						 SECURITY_SERVER_URI_ID), server_url_len + 1);
 
 	/* Security Mode */
 	lwm2m_engine_set_u8(LWM2M_PATH(LWM2M_OBJECT_SECURITY_ID, 0, SECURITY_MODE_ID),

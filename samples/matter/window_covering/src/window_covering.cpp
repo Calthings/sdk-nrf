@@ -12,9 +12,9 @@
 
 #include <app-common/zap-generated/attributes/Accessors.h>
 #include <app/util/af.h>
-#include <logging/log.h>
 #include <platform/CHIPDeviceLayer.h>
-#include <zephyr.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/zephyr.h>
 
 LOG_MODULE_DECLARE(app, CONFIG_MATTER_LOG_LEVEL);
 
@@ -26,17 +26,6 @@ static const struct pwm_dt_spec sLiftPwmDevice = PWM_DT_SPEC_GET(DT_ALIAS(pwm_le
 static const struct pwm_dt_spec sTiltPwmDevice = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led2));
 
 static constexpr uint32_t sMoveTimeoutMs{ 200 };
-
-static constexpr uint32_t FromOneRangeToAnother(uint32_t aInMin, uint32_t aInMax, uint32_t aOutMin, uint32_t aOutMax,
-						uint32_t aInput)
-{
-	const auto diffInput = aInMax - aInMin;
-	const auto diffOutput = aOutMax - aOutMin;
-	if (diffInput > 0) {
-		return static_cast<uint32_t>(aOutMin + static_cast<uint64_t>(aInput - aInMin) * diffOutput / diffInput);
-	}
-	return 0;
-}
 
 WindowCovering::WindowCovering()
 {
@@ -89,14 +78,12 @@ chip::Percent100ths WindowCovering::CalculateSingleStep(MoveType aMoveType)
 	NPercent100ths current{};
 	OperationalState opState{};
 
-	OperationalStatus opStatus = OperationalStatusGet(Endpoint());
-
 	if (aMoveType == MoveType::LIFT) {
 		status = Attributes::CurrentPositionLiftPercent100ths::Get(Endpoint(), current);
-		opState = opStatus.lift;
+		opState = OperationalStateGet(Endpoint(), OperationalStatus::kLift);
 	} else if (aMoveType == MoveType::TILT) {
 		status = Attributes::CurrentPositionTiltPercent100ths::Get(Endpoint(), current);
-		opState = opStatus.tilt;
+		opState = OperationalStateGet(Endpoint(), OperationalStatus::kTilt);
 	}
 
 	if ((status == EMBER_ZCL_STATUS_SUCCESS) && !current.IsNull()) {
@@ -111,43 +98,31 @@ chip::Percent100ths WindowCovering::CalculateSingleStep(MoveType aMoveType)
 
 bool WindowCovering::TargetCompleted(MoveType aMoveType, NPercent100ths aCurrent, NPercent100ths aTarget)
 {
-	OperationalStatus currentOpStatus = OperationalStatusGet(Endpoint());
-	OperationalState currentOpState = (aMoveType == MoveType::LIFT) ? currentOpStatus.lift : currentOpStatus.tilt;
-
-	if (!aCurrent.IsNull() && !aTarget.IsNull()) {
-		switch (currentOpState) {
-		case OperationalState::MovingDownOrClose:
-			return (aCurrent.Value() >= aTarget.Value());
-		case OperationalState::MovingUpOrOpen:
-			return (aCurrent.Value() <= aTarget.Value());
-		default:
-			return true;
-		}
-	} else {
-		LOG_ERR("Invalid target/current positions");
-	}
-	return false;
+	return (OperationalState::Stall == ComputeOperationalState(aTarget, aCurrent));
 }
 
 void WindowCovering::StartTimer(MoveType aMoveType, uint32_t aTimeoutMs)
 {
-	if (aMoveType == MoveType::LIFT) {
-		(void)chip::DeviceLayer::SystemLayer().StartTimer(chip::System::Clock::Milliseconds32(sMoveTimeoutMs),
-								  MoveTimerTimeoutCallbackLift, nullptr);
-	} else if (aMoveType == MoveType::TILT) {
-		(void)chip::DeviceLayer::SystemLayer().StartTimer(chip::System::Clock::Milliseconds32(sMoveTimeoutMs),
-								  MoveTimerTimeoutCallbackTilt, nullptr);
+	MoveType *moveType = chip::Platform::New<MoveType>();
+	VerifyOrReturn(moveType != nullptr);
+
+	*moveType = aMoveType;
+	(void)chip::DeviceLayer::SystemLayer().StartTimer(chip::System::Clock::Milliseconds32(aTimeoutMs),
+							  MoveTimerTimeoutCallback, reinterpret_cast<void *>(moveType));
+}
+
+void WindowCovering::MoveTimerTimeoutCallback(chip::System::Layer *systemLayer, void *appState)
+{
+	MoveType *moveType = reinterpret_cast<MoveType *>(appState);
+	VerifyOrReturn(moveType != nullptr);
+
+	if (*moveType == MoveType::LIFT) {
+		chip::DeviceLayer::PlatformMgr().ScheduleWork(WindowCovering::DriveCurrentLiftPosition);
+	} else if (*moveType == MoveType::TILT) {
+		chip::DeviceLayer::PlatformMgr().ScheduleWork(WindowCovering::DriveCurrentTiltPosition);
 	}
-}
 
-void WindowCovering::MoveTimerTimeoutCallbackLift(chip::System::Layer *systemLayer, void *appState)
-{
-	chip::DeviceLayer::PlatformMgr().ScheduleWork(WindowCovering::DriveCurrentLiftPosition);
-}
-
-void WindowCovering::MoveTimerTimeoutCallbackTilt(chip::System::Layer *systemLayer, void *appState)
-{
-	chip::DeviceLayer::PlatformMgr().ScheduleWork(WindowCovering::DriveCurrentTiltPosition);
+	chip::Platform::Delete(moveType);
 }
 
 void WindowCovering::DriveCurrentTiltPosition(intptr_t)
@@ -209,22 +184,18 @@ void WindowCovering::SetSingleStepTarget(OperationalState aDirection)
 
 void WindowCovering::UpdateOperationalStatus(MoveType aMoveType, OperationalState aDirection)
 {
-	OperationalStatus currentOpStatus = OperationalStatusGet(Endpoint());
-
 	switch (aMoveType) {
 	case MoveType::LIFT:
-		currentOpStatus.lift = aDirection;
+		OperationalStateSet(Endpoint(), OperationalStatus::kLift, aDirection);
 		break;
 	case MoveType::TILT:
-		currentOpStatus.tilt = aDirection;
+		OperationalStateSet(Endpoint(), OperationalStatus::kTilt, aDirection);
 		break;
 	case MoveType::NONE:
 		break;
 	default:
 		break;
 	}
-
-	OperationalStatusSetWithGlobalUpdated(Endpoint(), currentOpStatus);
 }
 
 void WindowCovering::SetTargetPosition(OperationalState aDirection, chip::Percent100ths aPosition)
@@ -271,18 +242,17 @@ void WindowCovering::SetBrightness(MoveType aMoveType, uint16_t aPosition)
 
 uint8_t WindowCovering::PositionToBrightness(uint16_t aPosition, MoveType aMoveType)
 {
-	uint8_t pwmMin{};
-	uint8_t pwmMax{};
+	AbsoluteLimits pwmLimits{};
 
 	if (aMoveType == MoveType::LIFT) {
-		pwmMin = mLiftIndicator.GetMinLevel();
-		pwmMax = mLiftIndicator.GetMaxLevel();
+		pwmLimits.open = mLiftIndicator.GetMinLevel();
+		pwmLimits.closed = mLiftIndicator.GetMaxLevel();
 	} else if (aMoveType == MoveType::TILT) {
-		pwmMin = mTiltIndicator.GetMinLevel();
-		pwmMax = mTiltIndicator.GetMaxLevel();
+		pwmLimits.open = mTiltIndicator.GetMinLevel();
+		pwmLimits.closed = mTiltIndicator.GetMaxLevel();
 	}
 
-	return FromOneRangeToAnother(WC_PERCENT100THS_MIN_OPEN, WC_PERCENT100THS_MAX_CLOSED, pwmMin, pwmMax, aPosition);
+	return Percent100thsToValue(pwmLimits, aPosition);
 }
 
 void WindowCovering::SchedulePostAttributeChange(chip::EndpointId aEndpoint, chip::AttributeId aAttributeId)

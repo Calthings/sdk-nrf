@@ -8,9 +8,12 @@
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 #include <getopt.h>
+#include <net/nrf_cloud_agps.h>
 
 #include "mosh_print.h"
 #include "gnss.h"
+
+#define AGPS_CMD_LINE_INJECT_MAX_LENGTH MIN(3500, CONFIG_SHELL_CMD_BUFF_SIZE)
 
 static bool gnss_running;
 
@@ -521,12 +524,105 @@ static int cmd_gnss_agps(const struct shell *shell, size_t argc, char **argv)
 
 static int cmd_gnss_agps_inject(const struct shell *shell, size_t argc, char **argv)
 {
-	return gnss_inject_agps_data();
+	int ret = 0;
+
+	if (argc == 1) {
+		/* Fetch assistance data from nRF cloud or from SUPL server and inject */
+		ret = gnss_inject_agps_data();
+	} else if (argc == 2) {
+		/* Assistance data provided as command line argument */
+#if defined(CONFIG_NRF_CLOUD_AGPS)
+		size_t bin_array_length = 0;
+
+		if (strlen(argv[1]) <= AGPS_CMD_LINE_INJECT_MAX_LENGTH) {
+			char *buf = k_malloc(sizeof(char) * AGPS_CMD_LINE_INJECT_MAX_LENGTH);
+
+			if (buf == NULL) {
+				mosh_error("Cannot allocate memory for the assistance data");
+				return -ENOMEM;
+			}
+			bin_array_length = hex2bin(argv[1],
+						   strlen(argv[1]),
+						   buf,
+						   AGPS_CMD_LINE_INJECT_MAX_LENGTH);
+
+			if (bin_array_length) {
+				mosh_print("Injecting %d bytes", bin_array_length);
+				ret = nrf_cloud_agps_process(buf, bin_array_length);
+			} else {
+				mosh_error("Assistance data not in valid hexadecimal format");
+				ret = -EINVAL;
+			}
+			k_free(buf);
+		} else {
+			mosh_error("Assistance data length %d exceeds the maximum length of %d",
+				   strlen(argv[1]),
+				   AGPS_CMD_LINE_INJECT_MAX_LENGTH);
+			ret = -EINVAL;
+		}
+#else
+		mosh_error("GNSS: Enable CONFIG_NRF_CLOUD_AGPS to enable the processing of "
+			   "A-GPS data");
+		ret = -EOPNOTSUPP;
+#endif
+	}
+	return ret;
 }
 
 static int cmd_gnss_agps_expiry(const struct shell *shell, size_t argc, char **argv)
 {
 	return gnss_get_agps_expiry();
+}
+
+static int cmd_gnss_agps_ref_altitude(const struct shell *shell, size_t argc, char **argv)
+{
+	int altitude = 0;
+	int err = 0;
+	struct nrf_modem_gnss_agps_data_location location = { 0 };
+
+	if (gnss_running) {
+		mosh_error("%s: stop GNSS to execute command", argv[0]);
+		return -ENOEXEC;
+	}
+
+	if (argc != 2) {
+		mosh_error("ref_altitude: wrong parameter count");
+		mosh_print("ref_altitude: <altitude>");
+		mosh_print(
+			"altitude:\tReference altitude [m] with regard to the reference ellipsoid "
+			"surface");
+		return -EINVAL;
+	}
+
+	altitude = atoi(argv[1]);
+
+	if (altitude < -32767 || altitude > 32767) {
+		mosh_error("ref_altitude: invalid altitude value %d", altitude);
+		return -EINVAL;
+	}
+
+	/* Only inject altitude, thus set unc_semimajor and unc_semiminor to 255 which indicates
+	 * that latitude and longitude are not to be used. Set confidence to 100 for maximum
+	 * confidence.
+	 */
+	location.unc_semimajor = 255;
+	location.unc_semiminor = 255;
+	location.confidence = 100;
+	location.altitude = altitude;
+	/* The altitude uncertainty has to be less than 100 meters (coded number K has to
+	 * be less than 48) for the altitude to be used for a 3-sat fix. GNSS increases
+	 * the uncertainty depending on the age of the altitude and whether the device is
+	 * stationary or moving. The uncertainty is set to 0 (meaning 0 meters), so that
+	 * it remains usable for a 3-sat fix for as long as possible.
+	 */
+	location.unc_altitude = 0;
+
+	err = nrf_modem_gnss_agps_write(&location, sizeof(location), NRF_MODEM_GNSS_AGPS_LOCATION);
+	if (err) {
+		mosh_error("Failed to set reference altitude, error: %d", err);
+	}
+
+	return err;
 }
 
 static int cmd_gnss_pgps(const struct shell *shell, size_t argc, char **argv)
@@ -979,16 +1075,23 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_gnss_agps,
 	SHELL_CMD(automatic, &sub_gnss_agps_automatic,
 		  "Enable/disable automatic fetching of AGPS data.", cmd_gnss_agps_automatic),
-	SHELL_CMD_ARG(inject, NULL, "Fetch and inject AGPS data to GNSS.",
-		      cmd_gnss_agps_inject, 1, 0),
+	SHELL_CMD_ARG(inject, NULL, "[assistance_data]\nFetch and inject AGPS data to GNSS. "
+				    "Assistance data can be provided on command line in "
+				    "hexadecimal format without spaces. If <assistance_data> is "
+				    "left empty, the data is fetched from either nRF cloud or SUPL "
+				    "server.",
+		      cmd_gnss_agps_inject, 1, 1),
 	SHELL_CMD(filter, NULL,
 		  "<ephe> <alm> <utc> <klob> <neq> <time> <pos> <integrity>\nSet filter for "
-		  "allowed AGPS data.\n0 = disabled, 1 = enabled (default all enabled).",
+		  "allowed AGPS data. 0 = disabled, 1 = enabled (default all enabled).",
 		  cmd_gnss_agps_filter),
 	SHELL_CMD(filtephem, &sub_gnss_agps_filtered,
 		  "Enable/disable AGPS filtered ephemerides.", cmd_gnss_agps_filtered),
 	SHELL_CMD_ARG(expiry, NULL, "Query A-GPS data expiry information from GNSS.",
 		      cmd_gnss_agps_expiry, 1, 0),
+	SHELL_CMD(ref_altitude, NULL, "Reference altitude for 3-sat fix in meters with regard to "
+				      "the reference ellipsoid surface.",
+		  cmd_gnss_agps_ref_altitude),
 	SHELL_SUBCMD_SET_END
 );
 

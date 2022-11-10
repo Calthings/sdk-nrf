@@ -20,7 +20,7 @@ The sample supports the following development kit:
 
 .. table-from-sample-yaml::
 
-.. include:: /includes/spm.txt
+.. include:: /includes/tfm.txt
 
 Overview
 ********
@@ -105,11 +105,6 @@ Check and configure the following Kconfig options for the sample:
 CONFIG_GNSS_SAMPLE_NMEA_ONLY - To enable NMEA-only output mode
    The NMEA-only output mode can be used for example with 3rd party tools to visualize the GNSS output.
 
-.. _CONFIG_GNSS_SAMPLE_ANTENNA_EXTERNAL:
-
-CONFIG_GNSS_SAMPLE_ANTENNA_EXTERNAL - To use an external GNSS antenna
-   This configuration option should be enabled if an external GNSS antenna is used, so that the Low Noise Amplifier (LNA) can be configured accordingly.
-
 .. _CONFIG_GNSS_SAMPLE_ASSISTANCE_NRF_CLOUD:
 
 CONFIG_GNSS_SAMPLE_ASSISTANCE_NRF_CLOUD - To use nRF Cloud A-GPS
@@ -170,7 +165,7 @@ Building and running
 
 .. |sample path| replace:: :file:`samples/nrf9160/gnss`
 
-.. include:: /includes/build_and_run.txt
+.. include:: /includes/build_and_run_ns.txt
 
 If the sample is to be used with the SUPL client library, the library must be downloaded and enabled in the sample configuration.
 You can download it from the `Nordic Semiconductor website`_.
@@ -318,7 +313,6 @@ Dependencies
 
 This sample uses the following |NCS| libraries:
 
-* :ref:`secure_partition_manager`
 * :ref:`lib_nrf_cloud_agps`
 * :ref:`lib_nrf_cloud_pgps`
 * :ref:`lib_nrf_cloud_rest`
@@ -333,3 +327,7 @@ It uses the following Zephyr library:
 
 * :ref:`net_socket_offloading`
 * :ref:`settings_api`
+
+In addition, it uses the following secure firmware component:
+
+* :ref:`Trusted Firmware-M <ug_tfm>`

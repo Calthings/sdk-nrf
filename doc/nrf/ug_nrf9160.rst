@@ -61,7 +61,7 @@ Complete the following steps to download the nRF Cloud certificate for your nRF9
 
       nRF Cloud - Gear icon in Provision Devices
 
-   The :guilabel:`Create JITP Certificates` dialog box opens.
+   The **Create JITP Certificates** dialog box opens.
 
    .. figure:: /images/nrfcloud_jitpcertificates.png
       :alt: nRF Cloud - Create JITP Certificates dialog box
@@ -105,7 +105,7 @@ After downloading the certificate, you must provision it to your nRF9160 DK.
 Complete the following steps to provision the certificate:
 
 1. Open the LTE Link Monitor app from nRF Connect for Desktop.
-#. In the :guilabel:`Settings` pane of the side panel, deselect the checkbox for :guilabel:`Automatic requests` if it is selected.
+#. In the **SETTINGS** section of the side panel, deselect the checkbox for :guilabel:`Automatic requests` if it is selected.
 
    .. figure:: /images/ltelinkmonitor_automaticrequests.png
       :alt: LTE Link Monitor - Automatic requests check box
@@ -115,16 +115,16 @@ Complete the following steps to provision the certificate:
 #. Click :guilabel:`Select device` and select the DK from the drop-down list.
    You can identify the nRF9160 DK by the fact that it has three COM ports.
 
-   .. figure:: /images/programmer_com_ports.png
-      :alt: Programmer - COM ports
+   .. figure:: /images/ltelinkmonitor_selectdevice.png
+      :alt: LTE Link Monitor - COM ports
 
-      Programmer - COM ports
+      LTE Link Monitor - COM ports
 
    If the three COM ports are not visible, press ``Ctrl+R`` in Windows or ``command+R`` in macOS to restart the Programmer application.
 
    The drop-down text changes to the type of the selected device, with the SEGGER ID below the name.
 
-#. Click :guilabel:`Terminal` in the navigation bar to switch to the terminal view.
+#. Click :guilabel:`TERMINAL` in the navigation bar to switch to the terminal view.
 
    .. figure:: /images/ltelinkmonitor_navigationterminal.png
       :alt: LTE Link Monitor - Terminal
@@ -136,9 +136,9 @@ Complete the following steps to provision the certificate:
 #. Enter ``AT+CFUN?`` in the text field for AT commands and click :guilabel:`Send`.
    This AT command returns the state of the modem.
 
-   The command should return ``+CFUN: 4``, which indicates that the modem is in offline state.
+   The command must return ``+CFUN: 4``, which indicates that the modem is in offline state.
    If it returns a different value, repeat the previous step.
-#. Click :guilabel:`Certificate manager` in the navigation bar to switch to the certificate manager view.
+#. Click :guilabel:`CERTIFICATE MANAGER` in the navigation bar to switch to the certificate manager view.
 
    .. figure:: /images/ltelinkmonitor_navigationcertificatemanager.png
       :alt: LTE Link Monitor - Certificate Manager
@@ -153,7 +153,7 @@ Complete the following steps to provision the certificate:
 
       LTE Link Monitor - Load from JSON
 
-#. Ensure that the :guilabel:`Security tag` is set to ``16842753``, which is the security tag for nRF Cloud credentials.
+#. Ensure that the **Security tag** is set to ``16842753``, which is the security tag for nRF Cloud credentials.
 #. Click :guilabel:`Update certificate`.
 
    .. figure:: /images/ltelinkmonitor_updatecertificates.png
@@ -167,7 +167,7 @@ Complete the following steps to provision the certificate:
    .. note::
 
       If you have connected your nRF9160 DK to nRF Cloud before, you must delete the device there after provisioning the certificate.
-      To do so, open the entry for your device from the :guilabel:`Devices` view, then click the gear icon to the right of the device's name, and select :guilabel:`Delete Device`.
+      Open the entry for your device from the **Devices** view, then click the gear icon to the right of the device's name, and select :guilabel:`Delete Device`.
       Then, add the nRF9160 DK again as described in :ref:`nrf9160_gs_connecting_dk_to_cloud`
 
 
@@ -184,6 +184,8 @@ In Zephyr, :ref:`zephyr:nrf9160dk_nrf9160` is divided into two different build t
 
 Make sure to select a suitable build target when building your application.
 
+.. _build_pgm_nrf9160:
+
 Building and programming
 ************************
 
@@ -199,8 +201,71 @@ Likewise, in Step 7, choose the :file:`.hex` file for the application you are pr
 .. note::
    When you update the application firmware on an nRF9160 DK, you must also update the modem firmware as described in :ref:`nrf9160_gs_updating_fw_modem`.
 
-See :ref:`gs_programming` for more information on building and programming samples on nRF9160 DK.
+.. _build_pgm_nrf9160_vsc:
 
+Building and programming using |VSC|
+====================================
+
+|vsc_extension_instructions|
+
+Complete the following steps after installing the |nRFVSC|:
+
+.. |sample_path_vsc| replace:: :file:`ncs/nrf/applications/asset_tracker_v2`
+
+.. |vsc_sample_board_target_line| replace:: you must use the build target ``nrf9160dk_nrf9160_ns`` when building the application code for the nRF9160 DK
+
+.. include:: /includes/vsc_build_and_run.txt
+
+#. Program the application:
+
+.. prog_nrf9160_start
+..
+
+   a. Set the **SW10** switch (marked PROG/DEBUG) in the **nRF91** position to program the nRF9160 application.
+      In nRF9160 DK v0.9.0 and earlier, the switch is called **SW5**.
+   #. Connect the nRF9160 DK to your PC using a USB cable.
+   #. Power on the nRF9160 DK.
+
+.. prog_nrf9160_end
+..
+
+   d. In |VSC|, click the :guilabel:`Flash` option in the :guilabel:`Actions View`.
+
+      If you have multiple boards connected, you are prompted to pick a device at the top of the screen.
+
+      A small notification banner appears in the bottom-right corner of |VSC| to display the progress and confirm when the flashing is complete.
+
+.. _build_pgm_nrf9160_cmdline:
+
+Building and programming on the command line
+============================================
+
+.. |cmd_folder_path| replace:: on the nRF9160 DK
+
+.. |cmd_build_target| replace:: ``nrf9160dk_nrf9160_ns`` when building the application code for the nRF9160 DK
+
+
+.. include:: /includes/cmd_build_and_run.txt
+
+#. Program the application:
+
+.. include:: ug_nrf9160.rst
+   :start-after: prog_nrf9160_start
+   :end-before: prog_nrf9160_end
+..
+
+   d. Program the sample or application to the device using the following command:
+
+      .. code-block:: console
+
+         west flash
+
+      .. note::
+         When programming with the :ref:`asset_tracker_v2` application, use the ``west flash --erase`` command.
+         The application has secure boot enabled by default that includes data in the :ref:`One-Time Programmable region (OTP)<bootloader_provisioning_otp>`.
+         This means that everything must be erased before flashing.
+
+      The device resets and runs the programmed sample or application.
 
 Board revisions
 ***************
@@ -218,7 +283,7 @@ To make use of these features, specify the board revision when building your app
    Newer revisions are compatible with the default revision.
 
 To specify the board revision, append it to the build target when building.
-For example, when building a non-secure application for nRF9160 DK v1.0.0, use ``nrf9160dk_nrf9106ns@1.0.0`` as build target.
+For example, when building a non-secure application for nRF9160 DK v1.0.0, use ``nrf9160dk_nrf9106_ns@1.0.0`` as build target.
 
 See :ref:`zephyr:application_board_version` and :ref:`zephyr:nrf9160dk_additional_hardware` for more information.
 

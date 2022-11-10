@@ -41,22 +41,12 @@ enum app_module_event_type {
 	APP_EVT_DATA_GET,
 
 	/** Create a list with all available sensor types in the system and
-	 *  distribute it as a APP_EVT_DATA_GET event.
+	 *  distribute it as an APP_EVT_DATA_GET event.
 	 */
 	APP_EVT_DATA_GET_ALL,
 
 	/** Request latest configuration from the cloud. */
 	APP_EVT_CONFIG_GET,
-
-	/** Application module is waiting for movement to trigger the next sample request. This
-	 *  event is used to signal the sensor module to enable activity detection.
-	 */
-	APP_EVT_ACTIVITY_DETECTION_ENABLE,
-
-	/** Application module does not depend on activity detection. This event is used to signal
-	 *  the sensor module to disable activity detection.
-	 */
-	APP_EVT_ACTIVITY_DETECTION_DISABLE,
 
 	/** The application module needs A-GPS to be processed before it requests GNSS. */
 	APP_EVT_AGPS_NEEDED,

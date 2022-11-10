@@ -118,58 +118,6 @@ namespace app
 
 		} // namespace AdministratorCommissioning
 
-		namespace DiagnosticLogs
-		{
-			void DispatchServerCommand(CommandHandler *apCommandObj,
-						   const ConcreteCommandPath &aCommandPath,
-						   TLV::TLVReader &aDataTlv)
-			{
-				CHIP_ERROR TLVError = CHIP_NO_ERROR;
-				bool wasHandled = false;
-				{
-					switch (aCommandPath.mCommandId) {
-					case Commands::RetrieveLogsRequest::Id: {
-						Commands::RetrieveLogsRequest::DecodableType
-							commandData;
-						TLVError = DataModel::Decode(aDataTlv, commandData);
-						if (TLVError == CHIP_NO_ERROR) {
-							wasHandled =
-								emberAfDiagnosticLogsClusterRetrieveLogsRequestCallback(
-									apCommandObj, aCommandPath,
-									commandData);
-						}
-						break;
-					}
-					default: {
-						// Unrecognized command ID, error status will apply.
-						apCommandObj->AddStatus(
-							aCommandPath,
-							Protocols::InteractionModel::Status::
-								UnsupportedCommand);
-						ChipLogError(
-							Zcl,
-							"Unknown command " ChipLogFormatMEI
-							" for cluster " ChipLogFormatMEI,
-							ChipLogValueMEI(aCommandPath.mCommandId),
-							ChipLogValueMEI(aCommandPath.mClusterId));
-						return;
-					}
-					}
-				}
-
-				if (CHIP_NO_ERROR != TLVError || !wasHandled) {
-					apCommandObj->AddStatus(
-						aCommandPath,
-						Protocols::InteractionModel::Status::InvalidCommand);
-					ChipLogProgress(
-						Zcl,
-						"Failed to dispatch command, TLVError=%" CHIP_ERROR_FORMAT,
-						TLVError.Format());
-				}
-			}
-
-		} // namespace DiagnosticLogs
-
 		namespace GeneralCommissioning
 		{
 			void DispatchServerCommand(CommandHandler *apCommandObj,
@@ -351,17 +299,6 @@ namespace app
 						}
 						break;
 					}
-					case Commands::IdentifyQuery::Id: {
-						Commands::IdentifyQuery::DecodableType commandData;
-						TLVError = DataModel::Decode(aDataTlv, commandData);
-						if (TLVError == CHIP_NO_ERROR) {
-							wasHandled =
-								emberAfIdentifyClusterIdentifyQueryCallback(
-									apCommandObj, aCommandPath,
-									commandData);
-						}
-						break;
-					}
 					default: {
 						// Unrecognized command ID, error status will apply.
 						apCommandObj->AddStatus(
@@ -408,18 +345,6 @@ namespace app
 						if (TLVError == CHIP_NO_ERROR) {
 							wasHandled =
 								emberAfNetworkCommissioningClusterScanNetworksCallback(
-									apCommandObj, aCommandPath,
-									commandData);
-						}
-						break;
-					}
-					case Commands::AddOrUpdateWiFiNetwork::Id: {
-						Commands::AddOrUpdateWiFiNetwork::DecodableType
-							commandData;
-						TLVError = DataModel::Decode(aDataTlv, commandData);
-						if (TLVError == CHIP_NO_ERROR) {
-							wasHandled =
-								emberAfNetworkCommissioningClusterAddOrUpdateWiFiNetworkCallback(
 									apCommandObj, aCommandPath,
 									commandData);
 						}
@@ -654,18 +579,6 @@ namespace app
 						}
 						break;
 					}
-					case Commands::RemoveTrustedRootCertificate::Id: {
-						Commands::RemoveTrustedRootCertificate::DecodableType
-							commandData;
-						TLVError = DataModel::Decode(aDataTlv, commandData);
-						if (TLVError == CHIP_NO_ERROR) {
-							wasHandled =
-								emberAfOperationalCredentialsClusterRemoveTrustedRootCertificateCallback(
-									apCommandObj, aCommandPath,
-									commandData);
-						}
-						break;
-					}
 					default: {
 						// Unrecognized command ID, error status will apply.
 						apCommandObj->AddStatus(
@@ -695,57 +608,6 @@ namespace app
 			}
 
 		} // namespace OperationalCredentials
-
-		namespace SoftwareDiagnostics
-		{
-			void DispatchServerCommand(CommandHandler *apCommandObj,
-						   const ConcreteCommandPath &aCommandPath,
-						   TLV::TLVReader &aDataTlv)
-			{
-				CHIP_ERROR TLVError = CHIP_NO_ERROR;
-				bool wasHandled = false;
-				{
-					switch (aCommandPath.mCommandId) {
-					case Commands::ResetWatermarks::Id: {
-						Commands::ResetWatermarks::DecodableType commandData;
-						TLVError = DataModel::Decode(aDataTlv, commandData);
-						if (TLVError == CHIP_NO_ERROR) {
-							wasHandled =
-								emberAfSoftwareDiagnosticsClusterResetWatermarksCallback(
-									apCommandObj, aCommandPath,
-									commandData);
-						}
-						break;
-					}
-					default: {
-						// Unrecognized command ID, error status will apply.
-						apCommandObj->AddStatus(
-							aCommandPath,
-							Protocols::InteractionModel::Status::
-								UnsupportedCommand);
-						ChipLogError(
-							Zcl,
-							"Unknown command " ChipLogFormatMEI
-							" for cluster " ChipLogFormatMEI,
-							ChipLogValueMEI(aCommandPath.mCommandId),
-							ChipLogValueMEI(aCommandPath.mClusterId));
-						return;
-					}
-					}
-				}
-
-				if (CHIP_NO_ERROR != TLVError || !wasHandled) {
-					apCommandObj->AddStatus(
-						aCommandPath,
-						Protocols::InteractionModel::Status::InvalidCommand);
-					ChipLogProgress(
-						Zcl,
-						"Failed to dispatch command, TLVError=%" CHIP_ERROR_FORMAT,
-						TLVError.Format());
-				}
-			}
-
-		} // namespace SoftwareDiagnostics
 
 		namespace ThreadNetworkDiagnostics
 		{
@@ -810,10 +672,6 @@ namespace app
 			Clusters::AdministratorCommissioning::DispatchServerCommand(
 				apCommandObj, aCommandPath, aReader);
 			break;
-		case Clusters::DiagnosticLogs::Id:
-			Clusters::DiagnosticLogs::DispatchServerCommand(apCommandObj, aCommandPath,
-									aReader);
-			break;
 		case Clusters::GeneralCommissioning::Id:
 			Clusters::GeneralCommissioning::DispatchServerCommand(
 				apCommandObj, aCommandPath, aReader);
@@ -837,10 +695,6 @@ namespace app
 		case Clusters::OperationalCredentials::Id:
 			Clusters::OperationalCredentials::DispatchServerCommand(
 				apCommandObj, aCommandPath, aReader);
-			break;
-		case Clusters::SoftwareDiagnostics::Id:
-			Clusters::SoftwareDiagnostics::DispatchServerCommand(apCommandObj,
-									     aCommandPath, aReader);
 			break;
 		case Clusters::ThreadNetworkDiagnostics::Id:
 			Clusters::ThreadNetworkDiagnostics::DispatchServerCommand(

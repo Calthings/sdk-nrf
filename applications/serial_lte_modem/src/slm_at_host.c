@@ -25,6 +25,14 @@
 
 LOG_MODULE_REGISTER(slm_at_host, CONFIG_SLM_LOG_LEVEL);
 
+#if defined(CONFIG_SLM_CONNECT_UART_0)
+#define UART_NODE DT_NODELABEL(uart0)
+#elif defined(CONFIG_SLM_CONNECT_UART_2)
+#define UART_NODE DT_NODELABEL(uart2)
+#else
+#error "Unknown Inter-Connect UART"
+#endif
+
 #define OK_STR		"\r\nOK\r\n"
 #define ERROR_STR	"\r\nERROR\r\n"
 #define FATAL_STR	"FATAL ERROR\r\n"
@@ -49,7 +57,7 @@ static enum slm_operation_modes {
 	SLM_DFU_MODE          /* nRF52 DFU controller */
 } slm_operation_mode;
 
-static const struct device *uart_dev;
+static const struct device *const uart_dev = DEVICE_DT_GET(UART_NODE);
 static uint8_t at_buf[AT_MAX_CMD_LEN];
 static uint16_t at_buf_len;
 static bool at_buf_overflow;
@@ -196,7 +204,7 @@ bool in_datamode(void)
 	return (slm_operation_mode == SLM_DATA_MODE);
 }
 
-bool exit_datamode(int exit_mode)
+bool exit_datamode(int result)
 {
 	if (slm_operation_mode == SLM_DATA_MODE) {
 		ring_buf_reset(&data_rb);
@@ -205,13 +213,7 @@ bool exit_datamode(int exit_mode)
 		k_sleep(K_MSEC(10));
 		(void)uart_receive();
 
-		if (exit_mode == DATAMODE_EXIT_OK) {
-			strcpy(rsp_buf, OK_STR);
-		} else if (exit_mode == DATAMODE_EXIT_ERROR) {
-			strcpy(rsp_buf, ERROR_STR);
-		} else {
-			sprintf(rsp_buf, "\r\n#XDATAMODE: 0\r\n");
-		}
+		sprintf(rsp_buf, "\r\n#XDATAMODE: %d\r\n", result);
 		rsp_send(rsp_buf, strlen(rsp_buf));
 
 		slm_operation_mode = SLM_AT_COMMAND_MODE;
@@ -291,10 +293,13 @@ int slm_uart_configure(void)
 		return err;
 	}
 #if defined(CONFIG_SLM_UART_HWFC_RUNTIME)
+	uint32_t RTS_PIN;
+	uint32_t CTS_PIN;
 /* Set HWFC dynamically */
 	#if defined(CONFIG_SLM_CONNECT_UART_0)
-		#define RTS_PIN DT_PROP(DT_NODELABEL(uart0), rts_pin)
-		#define CTS_PIN DT_PROP(DT_NODELABEL(uart0), cts_pin)
+		RTS_PIN = nrf_uarte_rts_pin_get(NRF_UARTE0);
+		CTS_PIN = nrf_uarte_cts_pin_get(NRF_UARTE0);
+
 		if (slm_uart.flow_ctrl == UART_CFG_FLOW_CTRL_RTS_CTS) {
 			nrf_uarte_hwfc_pins_set(NRF_UARTE0,
 						RTS_PIN,
@@ -305,8 +310,9 @@ int slm_uart_configure(void)
 		}
 	#endif
 	#if defined(CONFIG_SLM_CONNECT_UART_2)
-		#define RTS_PIN DT_PROP(DT_NODELABEL(uart2), rts_pin)
-		#define CTS_PIN DT_PROP(DT_NODELABEL(uart2), cts_pin)
+		RTS_PIN = nrf_uarte_rts_pin_get(NRF_UARTE2);
+		CTS_PIN = nrf_uarte_cts_pin_get(NRF_UARTE2);
+
 		if (slm_uart.flow_ctrl == UART_CFG_FLOW_CTRL_RTS_CTS) {
 			nrf_uarte_hwfc_pins_set(NRF_UARTE2,
 						RTS_PIN,
@@ -567,7 +573,7 @@ static void datamode_quit(struct k_work *work)
 	} else {
 		LOG_WRN("missing datamode handler");
 	}
-	(void)exit_datamode(DATAMODE_EXIT_OK);
+	(void)exit_datamode(0);
 }
 
 static int raw_rx_handler(const uint8_t *data, int datalen)
@@ -772,9 +778,7 @@ static void cmd_send(struct k_work *work)
 
 	err = slm_at_parse(at_buf);
 	if (err == 0) {
-		if (!in_datamode()) {
-			rsp_send(OK_STR, sizeof(OK_STR) - 1);
-		}
+		rsp_send(OK_STR, sizeof(OK_STR) - 1);
 		goto done;
 	} else if (err != -ENOENT) {
 		rsp_send(ERROR_STR, sizeof(ERROR_STR) - 1);
@@ -958,18 +962,9 @@ int slm_at_host_init(void)
 	int err;
 	uint32_t start_time;
 
-	/* Initialize the UART module */
-#if defined(CONFIG_SLM_CONNECT_UART_0)
-	uart_dev = device_get_binding(DT_LABEL(DT_NODELABEL(uart0)));
-#elif defined(CONFIG_SLM_CONNECT_UART_2)
-	uart_dev = device_get_binding(DT_LABEL(DT_NODELABEL(uart2)));
-#else
-	LOG_ERR("Unsupported UART instance");
-	return -EINVAL;
-#endif
-	if (uart_dev == NULL) {
-		LOG_ERR("Cannot bind UART device\n");
-		return -EINVAL;
+	if (!device_is_ready(uart_dev)) {
+		LOG_ERR("UART device not ready");
+		return -ENODEV;
 	}
 	/* Save UART configuration to setting page */
 	if (!uart_configured) {

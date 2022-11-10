@@ -89,6 +89,32 @@ static int sms_submit_encode_number(
 }
 
 /**
+ * @brief Prints error information for positive error codes of @c nrf_modem_at_printf.
+ *
+ * @param[in] err Error code.
+ */
+static void sms_submit_print_error(int err)
+{
+#if (CONFIG_SMS_LOG_LEVEL >= LOG_LEVEL_ERR)
+	if (err <= 0) {
+		return;
+	}
+
+	switch (nrf_modem_at_err_type(err)) {
+	case NRF_MODEM_AT_ERROR:
+		LOG_ERR("ERROR");
+		break;
+	case NRF_MODEM_AT_CME_ERROR:
+		LOG_ERR("+CME ERROR: %d", nrf_modem_at_err(err));
+		break;
+	case NRF_MODEM_AT_CMS_ERROR:
+		LOG_ERR("+CMS ERROR: %d", nrf_modem_at_err(err));
+		break;
+	}
+#endif
+}
+
+/**
  * @brief Create SMS-SUBMIT message as specified in specified in 3GPP TS 23.040 chapter 9.2.2.2.
  *
  * @details Optionally allows adding User-Data-Header.
@@ -165,11 +191,12 @@ static int sms_submit_encode(
 	send_buf[ud_start_index + encoded_data_size_octets * 2 + 1] = '\0';
 
 	LOG_DBG("Sending encoded SMS data (length=%d):", msg_size);
-	LOG_DBG("%s", log_strdup(send_buf));
+	LOG_DBG("%s", send_buf);
 
 	err = nrf_modem_at_printf(send_buf);
 	if (err) {
 		LOG_ERR("Sending AT command failed, err=%d", err);
+		sms_submit_print_error(err);
 	} else {
 		LOG_DBG("Sending AT command succeeded");
 	}
@@ -304,7 +331,7 @@ int sms_submit_send(const char *number, const char *text)
 		text = empty_string;
 	}
 
-	LOG_DBG("Sending SMS to number=%s, text='%s'", log_strdup(number), log_strdup(text));
+	LOG_DBG("Sending SMS to number=%s, text='%s'", number, text);
 
 	/* Encode number into format required in SMS header */
 	encoded_number_size = strlen(number);

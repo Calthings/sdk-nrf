@@ -19,38 +19,25 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(MODULE, CONFIG_BRIDGE_UART_LOG_LEVEL);
 
+static const struct device *devices[] = {
+	DEVICE_DT_GET(DT_NODELABEL(uart0)),
+	DEVICE_DT_GET(DT_NODELABEL(uart1)),
+};
+
+#define UART_DEVICE_COUNT ARRAY_SIZE(devices)
+
 #define UART_BUF_SIZE CONFIG_BRIDGE_BUF_SIZE
 
 #define UART_SLAB_BLOCK_SIZE sizeof(struct uart_rx_buf)
 #define UART_SLAB_BLOCK_COUNT (UART_DEVICE_COUNT * CONFIG_BRIDGE_UART_BUF_COUNT)
 #define UART_SLAB_ALIGNMENT 4
-#define UART_RX_TIMEOUT_MS 1
+#define UART_RX_TIMEOUT_USEC 1000
 
 #if defined(CONFIG_PM_DEVICE)
 #define UART_SET_PM_STATE true
 #else
 #define UART_SET_PM_STATE false
 #endif
-
-#define UART_DEVICE_LIST \
-	X(0)\
-	X(1)
-
-enum uart_device_idx {
-#define X(_DEV_IDX) CONCAT(UART_DEVICE, _DEV_IDX),
-	UART_DEVICE_LIST
-#undef X
-	UART_DEVICE_COUNT
-};
-
-BUILD_ASSERT(UART_DEVICE_COUNT > 0);
-
-/* List of UART device names. "UART_0", "UART_1", etc. */
-static const char *device_names[UART_DEVICE_COUNT] = {
-#define X(_DEV_IDX) STRINGIFY(CONCAT(UART_, _DEV_IDX)),
-	UART_DEVICE_LIST
-#undef X
-};
 
 struct uart_rx_buf {
 	atomic_t ref_counter;
@@ -70,7 +57,6 @@ BUILD_ASSERT((sizeof(struct uart_rx_buf) % UART_SLAB_ALIGNMENT) == 0);
 
 K_MEM_SLAB_DEFINE(uart_rx_slab, UART_SLAB_BLOCK_SIZE, UART_SLAB_BLOCK_COUNT, UART_SLAB_ALIGNMENT);
 
-static const struct device *devices[UART_DEVICE_COUNT];
 static struct uart_tx_buf uart_tx_ringbufs[UART_DEVICE_COUNT];
 static uint32_t uart_default_baudrate[UART_DEVICE_COUNT];
 /* UART RX only enabled when there is one or more subscribers (power saving) */
@@ -273,7 +259,7 @@ static void enable_uart_rx(uint8_t dev_idx)
 		return;
 	}
 
-	err = uart_rx_enable(dev, buf->buf, sizeof(buf->buf), UART_RX_TIMEOUT_MS);
+	err = uart_rx_enable(dev, buf->buf, sizeof(buf->buf), UART_RX_TIMEOUT_USEC);
 	if (err) {
 		uart_rx_buf_unref(buf);
 		LOG_ERR("uart_rx_enable: %d", err);
@@ -462,9 +448,9 @@ static bool app_event_handler(const struct app_event_header *aeh)
 			for (int i = 0; i < UART_DEVICE_COUNT; ++i) {
 				struct uart_config cfg;
 
-				devices[i] = device_get_binding(device_names[i]);
-				if (!devices[i]) {
-					LOG_ERR("%s not available", log_strdup(device_names[i]));
+				if (!device_is_ready(devices[i])) {
+					LOG_ERR("UART device not ready: %s",
+						devices[i]->name);
 					continue;
 				}
 

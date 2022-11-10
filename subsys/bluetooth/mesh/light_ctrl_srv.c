@@ -212,7 +212,7 @@ static uint32_t curr_fade_time(struct bt_mesh_light_ctrl_srv *srv)
 
 	uint32_t remaining = remaining_fade_time(srv);
 
-	return MAX(0, srv->fade.duration - remaining);
+	return srv->fade.duration > remaining ? srv->fade.duration - remaining : 0;
 }
 
 static bool state_is_on(const struct bt_mesh_light_ctrl_srv *srv,
@@ -616,6 +616,10 @@ static void timeout(struct k_work *work)
 
 		restart_timer(srv, cooldown - srv->fade.duration);
 		return;
+	}
+
+	if (IS_ENABLED(CONFIG_BT_MESH_SCENE_SRV)) {
+		bt_mesh_scene_invalidate(srv->model);
 	}
 
 	if (srv->state == LIGHT_CTRL_STATE_ON) {
@@ -1627,8 +1631,7 @@ static int light_ctrl_srv_start(struct bt_mesh_model *model)
 			} else {
 				light_onoff_pub(srv, srv->state, true);
 			}
-		} else if (atomic_test_bit(&srv->lightness->flags,
-					   LIGHTNESS_SRV_FLAG_IS_ON)) {
+		} else if (srv->lightness->transient.is_on) {
 			lightness_on_power_up(srv->lightness);
 			schedule_resume_timer(srv);
 		} else {

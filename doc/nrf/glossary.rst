@@ -68,6 +68,9 @@ Glossary
       A configuration of the :term:`Isochronous channels (ISO)` feature of the :term:`LE Audio` standard.
       In this configuration, one audio source can broadcast audio to multiple audio receivers.
 
+   Buffer Status Report (BSR)
+      Carries the information on the amount of data available for each Logical Channel Group (LCG) from UE to eNB.
+
    Carrier Wave (CW)
       A single-frequency electromagnetic wave that can be modulated in amplitude, frequency, or phase to convey information.
 
@@ -157,6 +160,9 @@ Glossary
       A :term:`repository <Repository>` located downstream, relative to another repository, in the flow of information.
       See :ref:`dm_repo_types`.
 
+   Embedded Universal Integrated Circuit Card (eUICC)
+      A component of a SIM card that enables switching Mobile Network Operators over-the-air.
+
    Endpoint
       In the context of a :ref:`Matter <ug_matter>` or :ref:`Zigbee <ug_zigbee>` network, an addressable container that contains *clusters* appropriate for a single device type such as a sensor or a light bulb.
 
@@ -164,8 +170,14 @@ Glossary
       In the :term:`Global Navigation Satellite System (GNSS)`, the data providing information about the orbit of the satellite transmitting it.
       This data is valid for four hours and becomes inaccurate after that.
 
+   eUICC Identifier (EID)
+      A unique global serial number of an :term:`Embedded Universal Integrated Circuit Card (eUICC)`.
+
    Evaluation Kit (EK)
       A platform used to evaluate different development platforms.
+
+   Evolved Node B (eNB)
+      Base stations connected to the network that communicate wirelessly with mobile handsets in a 4G LTE network or 5G non-standalone (NSA) mode.
 
    Extended Discontinuous Reception (eDRX)
       A method to conserve the battery of an Internet of Things (IoT) device by allowing it to remain inactive for extended periods.
@@ -233,7 +245,7 @@ Glossary
       A software application that provides facilities for software development.
 
    Inter-IC sound (I2S)
-      A serial bus interface standard used for connecting digital audio devices for tranmission of the pulse-code modulation (PCM) data.
+      A serial bus interface standard used for connecting digital audio devices for transmission of the pulse-code modulation (PCM) data.
 
    International Mobile (Station) Equipment Identity (IMEI)
       A unique code consisting of 14 digits and one check digit for identifying 3GPP-based mobile devices.
@@ -346,7 +358,7 @@ Glossary
 
    Mcumgr
       A management library for 32-bit MCUs.
-      It uses the :term:`Simple Management Procotol (SMP)`.
+      It uses the :term:`Simple Management Protocol (SMP)`.
 
    Memory Watch Unit (MWU)
       A peripheral that can be used to generate events when a memory region is accessed by the CPU.
@@ -456,7 +468,7 @@ Glossary
       Sometimes it is improperly used as a synonym of :term:`commit <Commit>`.
 
    Personal Unblocking Key (PUK)
-      A key used to to reset a PIN that has been lost or forgotten for a SIM card.
+      A key used to reset a PIN that has been lost or forgotten for a SIM card.
 
    Power Amplifier (PA)
       A device used to increase the transmit power level of a radio signal.
@@ -523,6 +535,9 @@ Glossary
    Received Signal Strength Indication (RSSI)
       An indication of the power of a received radio signal.
 
+   Release Assistance Indication (RAI)
+      Release assistance indication (RAI) for access stratum (AS) is a 3GPP Release 14 feature that allows the LTE-M/NB-IoT UE to trigger a buffer status report (BSR) with zero-byte size to indicate to the eNB that it has no more uplink data, and that the UE does not anticipate receiving further downlink data.
+
    Remote Procedure Call (RPC)
       A form of inter-process communication that allows for calling a function on remote processors from a local processor, both synchronously and asynchronously.
 
@@ -559,7 +574,7 @@ Glossary
    Signal-to-Noise Ratio (SNR)
       The level of signal power compared to the level of noise power, often expressed in decibels (dB).
 
-   Simple Management Procotol (SMP)
+   Simple Management Protocol (SMP)
       A transport protocol used by :term:`Mcumgr`.
 
    Simple Network Time Protocol (SNTP)
@@ -577,6 +592,9 @@ Glossary
 
    Spinel
       A general management protocol for enabling a host device to communicate with and manage co-processors, like a network co-processor (NCP) or a radio co-processor (RCP).
+
+   Station mode (STA)
+      Device operating as a IEEE 802.11 station.
 
    Submodule
       A child of another Git :term:`repository <Repository>`, managed using the ``git submodule`` command family.
@@ -635,6 +653,10 @@ Glossary
    User Datagram Protocol (UDP)
       One of the core IP protocols.
       UDP with its connectionless model, no handshaking dialogues makes it a suitable transport for systems with constrained bandwidth like Bluetooth low energy.
+
+   User equipment (UE)
+      Any device used directly by an end-user to communicate.
+      It can be a hand-held telephone, a laptop computer equipped with a mobile broadband adapter, or any other device.
 
    User Information Configuration Registers (UICR)
       Non-volatile memory registers used to configure user-specific settings.

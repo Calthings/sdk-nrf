@@ -1,9 +1,3 @@
-/**
- * @file lte_lc.h
- *
- * @brief Public APIs for the LTE Link Control driver.
- */
-
 /*
  * Copyright (c) 2018 Nordic Semiconductor ASA
  *
@@ -11,6 +5,14 @@
  */
 #ifndef ZEPHYR_INCLUDE_LTE_LINK_CONTROL_H_
 #define ZEPHYR_INCLUDE_LTE_LINK_CONTROL_H_
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <zephyr/kernel.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @file lte_lc.h
@@ -21,14 +23,6 @@
  *
  * @brief Public APIs for the LTE Link Controller.
  */
-
-#include <stdbool.h>
-#include <stdint.h>
-#include <zephyr/kernel.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /* NOTE: enum lte_lc_nw_reg_status maps directly to the registration status
  *	 as returned by the AT command "AT+CEREG?".
@@ -431,6 +425,18 @@ enum lte_lc_ce_level {
 	LTE_LC_CE_LEVEL_UNKNOWN			= UINT8_MAX,
 };
 
+/** @brief Reduced mobility mode */
+enum lte_lc_reduced_mobility_mode {
+	/** Functionality according to the 3GPP relaxed monitoring feature. */
+	LTE_LC_REDUCED_MOBILITY_DEFAULT = 0,
+	/** Enable Nordic-proprietary reduced mobility feature. */
+	LTE_LC_REDUCED_MOBILITY_NORDIC = 1,
+	/** Full measurements for best possible mobility. Disable the 3GPP relaxed
+	 *  monitoring and Nordic-proprietary reduced mobility features.
+	 */
+	LTE_LC_REDUCED_MOBILITY_DISABLED = 2,
+};
+
 /** @brief Modem domain events. */
 enum lte_lc_modem_evt {
 	/** Indicates that a light search has been performed. This event gives the
@@ -468,6 +474,14 @@ enum lte_lc_modem_evt {
 
 	/** The device is overheated and the modem is therefore deactivated. */
 	LTE_LC_MODEM_EVT_OVERHEATED,
+};
+
+/** @brief Type of factory reset to perform. */
+enum lte_lc_factory_reset_type {
+	/** Reset all modem data to factory settings. */
+	LTE_LC_FACTORY_RESET_ALL = 0,
+	/** Reset user-configurable data to factory settings. */
+	LTE_LC_FACTORY_RESET_USER = 1,
 };
 
 /** @brief Connection evaluation parameters.
@@ -945,7 +959,8 @@ int lte_lc_psm_req(bool enable);
  * @retval 0 if successful.
  * @retval -EINVAL if input argument was invalid.
  * @retval -EFAULT if AT command failed.
- * @retval -EBADMSG if no active time and/or TAU value was received.
+ * @retval -EBADMSG if no active time and/or TAU value was received, including the case when
+ *         modem is not registered to network.
  */
 int lte_lc_psm_get(int *tau, int *active_time);
 
@@ -982,7 +997,7 @@ int lte_lc_edrx_param_set(enum lte_lc_lte_mode mode, const char *edrx);
 
 /** @brief Function for requesting modem to enable or disable
  *         use of eDRX using values set by `lte_lc_edrx_param_set`. The
- *         default values are defined in kconfig.
+ *         default values are defined in Kconfig.
  *         For reference see 3GPP 27.007 Ch. 7.40.
  *
  * @param enable Boolean value enabling or disabling the use of eDRX.
@@ -1194,6 +1209,47 @@ int lte_lc_periodic_search_clear(void);
  * @retval -EFAULT if an AT command could not be sent to the modem.
  */
 int lte_lc_periodic_search_request(void);
+
+/** @brief Read the current reduced mobility mode.
+ *
+ *  @note This feature is supported for nRF9160 modem firmware v1.3.2 and later
+ *	  versions. Attempting to use this API with older modem versions will
+ *	  result in an error being returned.
+ *
+ * @param[out] mode pointer to where the current reduced mobility mode should be written to
+ *
+ * @retval 0 if a mode was found and written to the provided pointer.
+ * @retval -EINVAL if input parameter was NULL.
+ * @retval -EFAULT if an AT command failed.
+ */
+int lte_lc_reduced_mobility_get(enum lte_lc_reduced_mobility_mode *mode);
+
+/** @brief Set reduced mobility mode.
+ *
+ *  @note This feature is supported for nRF9160 modem firmware v1.3.2 and later
+ *	  versions. Attempting to use this API with older modem versions will
+ *	  result in an error being returned.
+ *
+ * @param[in] mode new reduced mobility mode
+ *
+ * @retval 0 if the new reduced mobility mode was accepted by the modem.
+ * @retval -EFAULT if an AT command failed.
+ */
+int lte_lc_reduced_mobility_set(enum lte_lc_reduced_mobility_mode mode);
+
+/** @brief Reset modem to factory settings.
+ *	   This operation is only allowed when the modem is not activated.
+ *
+ *  @note This feature is supported for nRF9160 modem firmware v1.3.0 and later
+ *	  versions. Attempting to use this API with older modem versions will
+ *	  result in an error being returned.
+ *
+ * @param type Variable that determines what type of modem data will be reset.
+ *
+ * @retval 0 if factory reset was performed successfully.
+ * @retval -EFAULT if an AT command failed.
+ */
+int lte_lc_factory_reset(enum lte_lc_factory_reset_type type);
 
 /** @} */
 

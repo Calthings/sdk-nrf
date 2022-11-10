@@ -19,7 +19,7 @@ You can find information on the key types supported in the |NCS| in the :ref:`nR
 Generating private keys
 =======================
 
-|NCS| supports the following most common ways to generate private/public key pairs:
+The |NCS| supports the following most common ways to generate private/public key pairs:
 
 * :ref:`ug_fw_update_keys_openssl`
 * :ref:`ug_fw_update_keys_imgtool`
@@ -85,13 +85,13 @@ See below for examples of imgtool used to create some commonly used key types:
 
       .. code-block:: console
 
-         python3 bootlooader/mcuboot/scripts/imgtool.py keygen -t ecdsa-p256 -k priv.pem
+         python3 bootloader/mcuboot/scripts/imgtool.py keygen -t ecdsa-p256 -k priv.pem
 
    .. group-tab:: RSA-2048
 
       .. code-block:: console
 
-         python3 bootlooader/mcuboot/scripts/imgtool.py keygen -t rsa-2048 -k priv.pem
+         python3 bootloader/mcuboot/scripts/imgtool.py keygen -t rsa-2048 -k priv.pem
 
 For a full list of supported types, use the ``--help`` argument with the tool or any of its commands.
 
@@ -222,7 +222,7 @@ You can test that the bootloader no longer boots images signed with the earlier 
       CONFIG_SB_SIGNING_KEY_FILE="/path/to/priv_b.pem"
       CONFIG_FW_INFO_FIRMWARE_VERSION=3
 
-#. To facilitate testing, you can use ``nrfjprog`` to program this image directly into a slot:
+#. To facilitate testing, you can use nrfjprog to program this image directly into a slot:
 
    .. code-block:: console
 
@@ -266,12 +266,16 @@ With the |NCS|, you must choose the method for versioning an image for use in fi
 
 .. _ug_fw_update_image_versions_b0:
 
+
 Using |NSIB|
 ============
 
 .. include:: ../../samples/bootloader/README.rst
    :start-after: bootloader_monotonic_counter_start
    :end-before: bootloader_monotonic_counter_end
+
+Special handling is needed when updating the S1 variant of an image.
+See :ref:`ug_bootloader_adding_presigned_variants` for details.
 
 .. _ug_fw_update_image_versions_mcuboot:
 

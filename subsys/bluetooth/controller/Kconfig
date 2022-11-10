@@ -64,6 +64,7 @@ config BT_RX_STACK_SIZE
 	default 512 if BT_HCI_RAW
 	default 2048 if BT_MESH
 	default 2200 if BT_SETTINGS
+	default 1536 if BT_SMP
 	default 1024
 	range 512 65536 if BT_HCI_RAW
 	range 1100 65536 if BT_MESH
@@ -91,15 +92,15 @@ config BT_CTLR_SDC_LLPM
 	  which lets the application use connection intervals down to 1 ms.
 
 config BT_CTLR_SDC_PERIPHERAL_COUNT
-	int "Number of concurrent slave roles"
+	int "Number of concurrent peripheral roles"
 	default BT_MAX_CONN if (BT_PERIPHERAL && !BT_CENTRAL)
 	default 1 if BT_PERIPHERAL
 	default 0
 	range 0 BT_MAX_CONN
 	help
-	  Number of concurrent slave roles defines how many simultaneous
-	  connections can be created with the device working as a slave.
-	  NOTE: the number of master roles is defined as
+	  Number of concurrent peripheral roles defines how many simultaneous
+	  connections can be created with the device working as a peripheral.
+	  NOTE: the number of central roles is defined as
 	  BT_MAX_CONN - BT_CTLR_SDC_PERIPHERAL_COUNT
 
 config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT
@@ -110,6 +111,26 @@ config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT
 	  The time set aside for connections on every connection interval in
 	  microseconds. The event length and the connection interval are the
 	  primary parameters for setting the throughput of a connection.
+
+config BT_CTLR_SDC_TX_PACKET_COUNT
+	int "Number of Link Layer ACL TX buffers"
+	default 3
+	range 1 20
+	help
+	  The number Link Layer ACL TX packets reserved per connection.
+	  With the default count, the application is able to refill the buffers during a connection event.
+	  That is, non-default values should only be used if reduced throughput is accepted, or when the CPU
+	  utilization is so high that the application is not able to provide data fast enough during connection events.
+
+config BT_CTLR_SDC_RX_PACKET_COUNT
+	int "Number of Link Layer ACL RX buffers"
+	default 2
+	range 1 20
+	help
+	  The number Link Layer ACL RX packets reserved per connection.
+	  With the default count, the application is able to empty the buffers during a connection event.
+	  That is, non-default values should only be used if reduced throughput is accepted, or when the CPU
+	  utilization is so high that the application is not able to read data fast enough during connection events.
 
 config BT_CTLR_SDC_SCAN_BUFFER_COUNT
 	int "Number of buffers available in the scanner"

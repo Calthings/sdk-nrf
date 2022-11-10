@@ -48,44 +48,47 @@ config RPMSG_NRF53_SRAM_SIZE
 if FILE_SYSTEM_LITTLEFS
 partition=LITTLEFS
 partition-size=0x6000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
+rsource "Kconfig.template.partition_region"
 endif
 
 
 if SETTINGS_FCB || SETTINGS_NVS
 partition=SETTINGS_STORAGE
 partition-size=0x2000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
+rsource "Kconfig.template.partition_region"
 endif
 
 if NVS && !SETTINGS_NVS
 partition=NVS_STORAGE
 partition-size=0x6000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
+rsource "Kconfig.template.partition_region"
 endif
 
 if ZIGBEE && !SOC_NRF52833
 partition=ZBOSS_NVRAM
 partition-size=0x8000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
 endif
 
 if ZIGBEE && SOC_NRF52833
 partition=ZBOSS_NVRAM
 partition-size=0x4000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
 endif
 
 if ZIGBEE
 partition=ZBOSS_PRODUCT_CONFIG
 partition-size=0x1000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
 endif
 
 if EMDS
 partition=EMDS_STORAGE
 partition-size=0x1000
-rsource "Kconfig.template.partition_size"
+rsource "Kconfig.template.partition_config"
 endif
 
 endmenu # Zephyr subsystem configurations
@@ -119,6 +122,7 @@ config PM_EXTERNAL_FLASH_MCUBOOT_SECONDARY
 	# option is propagated to the MCUboot child image automatically.
 	depends on $(dt_chosen_enabled,$(DT_CHOSEN_EXT_FLASH)) || MCUBOOT
 	default y if BOOTLOADER_MCUBOOT
+	imply ADD_MCUBOOT_MEDIATE_SIM_FLASH_DTS
 	help
 	  Place the secondary partition of MCUboot in the external flash instead
 	  of the internal flash. This option should only be enabled by the user
@@ -129,6 +133,13 @@ config PM_IMAGE_NOT_BUILT_FROM_SOURCE
 	help
 	  Promptless helper config used to indicate that one or more
 	  image is not built from source.
+
+config PM_OVERRIDE_EXTERNAL_DRIVER_CHECK
+	bool "Override external driver check"
+	help
+	  When enabled, will include all external flash stroage areas without
+	  being gated on the NORDIC_QSPI_NOR Kconfig, can be enabled to use
+	  non-QSPI external flash chips from partition manager.
 
 # Helper configs needed since 'SRAM_SIZE/BASE' use the chosen node.
 config PM_SRAM_BASE

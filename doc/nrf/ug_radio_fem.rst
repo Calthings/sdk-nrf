@@ -7,40 +7,43 @@ Working with RF front-end modules
    :local:
    :depth: 4
 
-An RF front-end module (FEM) is a device that amplifies the RF signal, and therefore, increases the range distance and the strength of a link's connection.
-In addition to extending the range, an RF FEM also increases the robustness of the link connection.
-A more robust link leads to less packet loss, meaning less retransmissions.
-The probability of successfully receiving the first packet also increases, resulting in low link latency.
+An RF front-end module (FEM) is a device that amplifies the RF signal, to increase the range distance, the strength, and the robustness of a link connection.
+A more robust link reduces packet loss, causing fewer retransmissions and increasing the probability of successfully receiving the first packet, resulting in a lower link latency.
 
 FEMs provide a power amplifier (PA) that increases the TX power and a low-noise amplifier (LNA) that increases the RX sensitivity.
-Some FEMs, like the nRF21540, provide a power down (PDN) control that powers down the FEM internal circuits, to reduce energy consumption.
+Some FEMs, like the nRF21540, also provide a power down (PDN) control that powers down the FEM internal circuits, to reduce energy consumption.
 
-For testing purposes, a FEM is usually integrated in either a development kit or a shield that you connect to a development kit.
+For testing purposes, a FEM is usually integrated in either a development kit or a shield that you can connect to a development kit.
 
 This guide describes how to add support for 2 different front-end module (FEM) implementations to your application in |NCS|.
 
 Software support
 ****************
 
-If your application uses radio protocols and requires FEM, you can enable :ref:`nrfxlib:mpsl_fem` in the :ref:`nrfxlib:mpsl` (MPSL) library.
-The test samples in |NCS|: :ref:`radio_test` and :ref:`direct_test_mode` also support FEM control.
+To use radio protocols and a FEM with your application, enable :ref:`nrfxlib:mpsl_fem` in the :ref:`nrfxlib:mpsl` (MPSL) library.
+
+The following test samples support FEM control:
+
+* :ref:`radio_test`
+* :ref:`direct_test_mode`
+
 You can also use your own FEM driver when required.
 
 Using MPSL
 ==========
 
-The MPSL library provides an implementation for the 3-pin GPIO interface of the nRF21540 and a simplified version for FEMs with a 2-pin interface.
-To use this implementation, your application must use a protocol driver that enables the FEM feature.
+The MPSL library provides the following GPIO interface implementations:
+
+* :ref:`ug_radio_fem_nrf21540_gpio` - For the nRF21540 GPIO implementation that uses a 3-pin interface with the nRF21540.
+* :ref:`ug_radio_fem_skyworks` - For the Simple GPIO implementation that uses a 2-pin interface with the SKY66112-11 device.
+
+To use these implementations, your application must use a protocol driver that enables the FEM feature.
+
 The library provides multiprotocol support, but you can also use it in applications that require only one protocol.
-To avoid conflicts, check the protocol documentation to see if the protocol uses FEM support provided by MPSL.
-
-The implementations supported by the MPSL library are the following:
-
-* :ref:`ug_radio_fem_nrf21540_gpio` - For the nRF21540 GPIO implementation that uses nRF21540.
-* :ref:`ug_radio_fem_skyworks` - For the Simple GPIO implementation that uses the SKY66112-11 device.
+To avoid conflicts, check the protocol documentation to see if the protocol uses the FEM support provided by MPSL.
 
 .. note::
-   Currently, the following protocols use FEM support provided by MPSL:
+   Currently, the following protocols use the FEM support provided by MPSL:
 
    * :ref:`ug_thread`
    * :ref:`ug_zigbee`
@@ -58,13 +61,115 @@ Before you add the devicetree node in your application, complete the following s
    The MPSL library provides API to configure FEM.
    See :ref:`nrfxlib:mpsl_lib` in the nrfxlib documentation for details.
 #. Enable support for MPSL implementation in |NCS| by setting the :kconfig:option:`CONFIG_MPSL` Kconfig option to ``y``.
+#. Enable support for the FEM subsystem in |NCS| by setting the :kconfig:option:`CONFIG_MPSL_FEM` Kconfig option to ``y``.
+#. Choose the used FEM implementation by selecting the appropriate Kconfig option.
+
+The following FEM implementations are supported:
+
+* The nRF21540 GPIO implementation, see :ref:`ug_radio_fem_nrf21540_gpio`.
+  To use it, set the :kconfig:option:`CONFIG_MPSL_FEM_NRF21540_GPIO` Kconfig option to ``y``.
+* The nRF21540 GPIO SPI implementation, see :ref:`ug_radio_fem_nrf21540_spi_gpio`.
+  To use it, set the :kconfig:option:`CONFIG_MPSL_FEM_NRF21540_GPIO_SPI` Kconfig option to ``y``.
+* The nRF21540 2-pin simple GPIO implementation.
+  To use it, set the :kconfig:option:`CONFIG_MPSL_FEM_SIMPLE_GPIO` Kconfig option to ``y``.
+
+Setting the FEM output power
+----------------------------
+
+The ``tx_gain_db`` property in devicetree provides the FEM gain value to use with the simple GPIO FEM implementation.
+The property must represent the real gain of the FEM.
+This implementation does not support controlling the gain value during runtime.
+
+nRF21540 implementations have the gain set to ``10`` by default.
+You can set a different gain value to use through the :kconfig:option:`CONFIG_MPSL_FEM_NRF21540_TX_GAIN_DB`  option, but it has to match the value of one of the POUTA (:kconfig:option:`CONFIG_MPSL_FEM_NRF21540_TX_GAIN_DB_POUTA` ) or POUTB (:kconfig:option:`CONFIG_MPSL_FEM_NRF21540_TX_GAIN_DB_POUTB`) gains.
+
+.. caution::
+   :kconfig:option:`CONFIG_MPSL_FEM_NRF21540_TX_GAIN_DB_POUTA` and :kconfig:option:`CONFIG_MPSL_FEM_NRF21540_TX_GAIN_DB_POUTB` are by default set to ``20`` and ``10`` and these are factory-precalibrated gain values.
+   Do not change these values, unless POUTA and POUTB were calibrated to different values on specific request.
+
+To enable runtime control of the gain, set the :kconfig:option:`CONFIG_MPSL_FEM_NRF21540_RUNTIME_PA_GAIN_CONTROL` to ``y``.
+This option makes the gain of the FEM to be adjusted dynamically during runtime, depending on the power requested by the protocol driver for each transmission.
+For the nRF21540 GPIO implementation, you must enable the **MODE** pin in devicetree.
+For the nRF21540 GPIO SPI implementation, no additional configuration is needed as the gain setting is transmitted over the SPI bus to the nRF21540.
+
+You can use only the :ref:`nrfxlib:mpsl_fem` API if your application does not require other MPSL features.
+This might be useful when you want to run simple radio protocols that are not intended to be used concurrently with other protocols.
+Enable the following Kconfig options:
+
+* :kconfig:option:`CONFIG_MPSL`
+* :kconfig:option:`CONFIG_MPSL_FEM_ONLY`
+
+Using FEM power models
+----------------------
+
+When a protocol driver requests a given transmission power to be output, MPSL splits the power into the following components: the SoC Power and the FEM gain.
+This gain is considered constant and accurate even if external conditions, such as temperature, might affect the effective gain achieved by the Front-End Module.
+
+To perform the split differently (for example, to compensate for external conditions), you can use a FEM power model, either using one of the built-in ones or providing your own custom model.
+
+To use FEM power models, set the :kconfig:option:`CONFIG_MPSL_FEM_POWER_MODEL` Kconfig option to ``y``  and either select one of the built-in models or provide a custom model, as described in the following chapters.
+
+Using nRF21540 GPIO SPI built-in power model
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. note::
+   This is an :ref:`experimental <software_maturity>` feature.
+
+To use this model, set :kconfig:option:`CONFIG_MPSL_FEM_POWER_MODEL` and :kconfig:option:`CONFIG_MPSL_FEM_POWER_MODEL_NRF21540_USE_BUILTIN` to ``y``.
+
+This feature uses a model to compensate the FEM gain for the following external conditions:
+
+* Temperature
+* FEM supply voltage
+* Carrier frequency
+* FEM input power.
+
+The model assumes that the FEM supply voltage is constant.
+To provide the value of this voltage to the MPSL subsystem, use the :kconfig:option:`CONFIG_MPSL_FEM_POWER_VOLTAGE` option.
+
+Adding custom power models
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If the way MPSL splits the TX power into components does not meet your requirements, or if you wish to implement a custom compensation model, you can provide one as follows:
+
+1. Set :kconfig:option:`CONFIG_MPSL_FEM_POWER_MODEL` to ``y``
+#. Provide an implementation of the ``mpsl_fem_power_model_to_use_get()`` function.
+   This function should return a pointer to a variable of the type ``mpsl_fem_power_model_t`` which contains pointers to the model's callbacks.
+#. Mandatorily implement the model's ``fetch`` callback (details explained below).
+#. Optionally implement the model's ``init`` callback (details explained below).
+   If no ``init`` callback is provided, pass ``NULL`` as the pointer to the callback.
+#. You can also optionally extend the ``MPSL_FEM_POWER_MODEL_CHOICE`` Kconfig choice with an option to select your custom model, for example, if you want to test multiple custom models.
+
+The ``init`` callback is called by MPSL once, after FEM configuration finishes.
+Calibration data (acquired from FEM internal registers, Kconfig options, and devicetree files) is passed to this function using a parameter of the ``mpsl_fem_calibration_data_t`` type.
+The meaning of the calibration data stored in this parameter is implementation-specific.
+For details, see the ``mpsl_fem_calibration_data_t`` type documentation.
+
+The ``fetch`` callback is used to split the power between the SoC output power and the FEM gain.
+It is called every time this split needs to be recalculated.
+For 802.15.4, this happens before every transmission.
+For Bluetooth® Low Energy, this happens every time the channel changes.
+
+.. note::
+   This function is called in a time-critical path.
+   Please refer to the documentation of ``mpsl_fem_power_model_t`` on timing constraints.
+   Any complex calculations have to be done outside this function (for example, using a look up table).
+   Failing to meet the timing requirements will lead to an undefined behavior of the protocol stacks.
+
+
+The ``fetch`` callback must fill out all the fields of the  the ``p_output`` output parameter.
+For more details, see the ``mpsl_fem_power_model_output_t`` type documentation.
+
+.. note::
+   The ``soc_power`` field value must be one of the output power values supported by the given nRF SoC, otherwise the behavior is undefined.
+   The user can meet this requirement by converting the requested SoC power using the ``mpsl_tx_power_radio_supported_power_adjust`` function.
 
 .. _ug_radio_fem_direct_support:
 
 Direct support
 ==============
 
-If your application cannot use MPSL or if the FEM driver in MPSL does not support all features you need, you can implement your own driver for nRF21540.
+If your application cannot use MPSL or if the FEM driver in MPSL does not support all features you need, you can implement your own driver for the nRF21540.
 The following samples have direct FEM support:
 
 * :ref:`direct_test_mode`
@@ -174,7 +279,7 @@ To use nRF21540 in SPI or mixed mode, complete the following steps:
                spi-if = <&nrf_radio_fem_spi>
          };
       };
-#. Optionally replace the SPI bus device name ``nrf_radio_fem_spi``.
+#. Optionally replace the device name ``name_of_fem_node``.
 #. Replace the pin numbers provided for each of the required properties:
 
    * ``tx-en-gpios`` - GPIO characteristic of the device that controls the ``TX_EN`` signal of nRF21540.
@@ -230,7 +335,6 @@ To use nRF21540 in SPI or mixed mode, complete the following steps:
 
    In this example, the nRF21540 is controlled by the ``spi3`` bus.
    Replace the SPI bus according to your hardware design.
-   Replace the SPI bus device name ``nrf_radio_fem_spi`` with the name from the previous step.
 
 #. Create alternative pinctrl entries for SPI3 and replace the ``pinctrl-N`` and ``pinctrl-names`` properties.
 
@@ -360,7 +464,7 @@ Use case of incomplete physical connections to the FEM module
 =============================================================
 
 The method of configuring FEM using the devicetree file allows you to opt out of using some pins.
-For example if power consumption is not critical, the nRF21540 module PDN pin can be connected to a fixed logic level.
+For example, if power consumption is not critical, the nRF21540 module PDN pin can be connected to a fixed logic level.
 Then there is no need to define a GPIO to control the PDN signal. The line ``pdn-gpios = < .. >;`` can then be removed from the devicetree file.
 
 Generally, if pin ``X`` is not used, the ``X-gpios = < .. >;`` property can be removed.
@@ -376,7 +480,7 @@ Two nRF21540 boards are available, showcasing the possibilities of the nRF21540 
 * :ref:`nRF21540 DK <nrf21540dk_nrf52840>`
 * :ref:`ug_radio_fem_nrf21540_ek`
 
-Also various Skyworks front-end modules are supported.
+Also, various Skyworks front-end modules are supported.
 For example, SKY66112-11EK has a 2-pin PA/LNA interface.
 
 The front-end module feature is supported on the nRF52 and nRF53 Series devices.
@@ -460,7 +564,7 @@ Alternatively, add the shield in the project's :file:`CMakeLists.txt` file:
 
 	set(SHIELD nrf21540_ek)
 
-To build with |VSC|, in the :guilabel:`Extra Cmake arguments`, specify ``-DSHIELD=nrf21540_ek``.
+To build with the |nRFVSC|, specify ``-DSHIELD=nrf21540_ek`` in the **Extra Cmake arguments** field.
 See :ref:`cmake_options`.
 
 When building for a board with an additional network core, for example nRF5340, add an additional ``-DSHIELD`` variable with the *childImageName_* parameter between ``-D`` and ``SHIELD`` to build for the network core as well.

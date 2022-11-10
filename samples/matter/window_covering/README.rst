@@ -9,6 +9,7 @@ Matter: Window covering
 
 This sample demonstrates the usage of the :ref:`Matter <ug_matter>` application layer to build a window covering device.
 This device works as a Matter accessory device, meaning it can be paired and controlled remotely over a Matter network built on top of a low-power 802.15.4 Thread network.
+Additionally, this device works as a Thread :ref:`Synchronized Sleepy End Device (SSED) <thread_ot_device_types>`.
 
 Use this sample as a reference for developing your own application.
 See the :ref:`ug_matter_creating_accessory` page for an overview of the process you need to follow.
@@ -37,6 +38,20 @@ The following movement modes are available:
 
 See `User interface`_ for information about how to switch the movement modes.
 
+.. _matter_window_covering_sample_ssed:
+
+SSED device type
+================
+
+The SSED device type was created for the window covering devices to optimize the power usage of the device and communication pattern with the parent.
+
+.. include:: ../../../doc/nrf/ug_thread_commissioning.rst
+   :start-after: thread_ssed_description_start
+   :end-before: thread_ssed_description_end
+
+Sample testing
+==============
+
 You can test the sample in the following ways:
 
 * Standalone, using a single DK that runs the window covering application.
@@ -48,11 +63,11 @@ You can enable both methods after :ref:`building and running the sample <matter_
 .. _matter_window_cover_network_mode:
 
 Remote testing in a network
-===========================
+---------------------------
 
-.. include:: ../lock/README.rst
-    :start-after: matter_door_lock_sample_remote_testing_start
-    :end-before: matter_door_lock_sample_remote_testing_end
+.. include:: ../light_bulb/README.rst
+    :start-after: matter_light_bulb_sample_remote_testing_start
+    :end-before: matter_light_bulb_sample_remote_testing_end
 
 Configuration
 *************
@@ -62,37 +77,21 @@ Configuration
 Matter window covering build types
 ==================================
 
-.. include:: ../lock/README.rst
-    :start-after: matter_door_lock_sample_configuration_file_types_start
-    :end-before: matter_door_lock_sample_configuration_file_types_end
+.. include:: ../light_bulb/README.rst
+    :start-after: matter_light_bulb_sample_configuration_file_types_start
+    :end-before: matter_light_bulb_sample_configuration_file_types_end
 
 Device Firmware Upgrade support
 ===============================
 
-.. include:: ../lock/README.rst
-    :start-after: matter_door_lock_sample_build_with_dfu_start
-    :end-before: matter_door_lock_sample_build_with_dfu_end
+.. include:: ../light_bulb/README.rst
+    :start-after: matter_light_bulb_sample_build_with_dfu_start
+    :end-before: matter_light_bulb_sample_build_with_dfu_end
 
 FEM support
 ===========
 
 .. include:: /includes/sample_fem_support.txt
-
-Low-power build
-===============
-
-To configure the sample to consume less power, use the low-power build.
-It enables Thread's Synchronized Sleepy End Device mode and disables debug features, such as the UART console or the **LED 1** usage.
-
-To trigger the low-power build, use the ``-DOVERLAY_CONFIG="overlay-low_power.conf"`` option when building the sample.
-See :ref:`cmake_options` for instructions on how to add this option to your build.
-
-When building on the command line, run the following command with *build_target* replaced with the build target name of the hardware platform you are using (see `Requirements`_):
-
-.. parsed-literal::
-   :class: highlight
-
-   west build -b *build_target* -- -DOVERLAY_CONFIG="overlay-low_power.conf"
 
 User interface
 **************
@@ -104,6 +103,9 @@ User interface
 LED 2:
     Indicates the lift position of the window cover, which is represented by the brightness of the LED.
     The brightness level ranges from ``0`` to ``255``, where the brightness level set to ``0`` (switched off LED) indicates a fully opened window cover (lifted) and the brightness level set to ``255`` indicates a fully closed window cover (lowered).
+
+    Additionally, the LED starts blinking evenly (500 ms on/500 ms off) when the Identify command of the Identify cluster is received on the endpoint ``1``.
+    The command's argument can be used to specify the duration of the effect.
 
 LED 3:
     Indicates the tilt position of the window cover, which is represented by the brightness of the LED.
@@ -221,9 +223,9 @@ Remote control allows you to control the Matter window covering device from a Th
 Commissioning the device
 ------------------------
 
-.. include:: ../lock/README.rst
-    :start-after: matter_door_lock_sample_commissioning_start
-    :end-before: matter_door_lock_sample_commissioning_end
+.. include:: ../light_bulb/README.rst
+    :start-after: matter_light_bulb_sample_commissioning_start
+    :end-before: matter_light_bulb_sample_commissioning_end
 
 Before starting the commissioning procedure, the device must be made discoverable over Bluetooth LE.
 Press **Button 4** to enable the Bluetooth LE advertising.

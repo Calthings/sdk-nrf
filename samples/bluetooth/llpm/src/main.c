@@ -32,7 +32,9 @@
 #define INTERVAL_LLPM   0x0D01   /* Proprietary  1 ms */
 #define INTERVAL_LLPM_US 1000
 
-static volatile bool test_ready;
+
+static K_SEM_DEFINE(test_ready_sem, 0, 1);
+static bool test_ready;
 static struct bt_conn *default_conn;
 static struct bt_latency latency;
 static struct bt_latency_client latency_client;
@@ -128,6 +130,7 @@ static void discovery_complete(struct bt_gatt_dm *dm, void *context)
 
 	/* Start testing when the GATT service is discovered */
 	test_ready = true;
+	k_sem_give(&test_ready_sem);
 }
 
 static void discovery_service_not_found(struct bt_conn *conn, void *context)
@@ -466,19 +469,19 @@ void main(void)
 	}
 
 	while (true) {
-		printk("Choose device role - type m (master role) or s (slave role): ");
+		printk("Choose device role - type c (central) or p (peripheral): ");
 
 		char input_char = console_getchar();
 
 		printk("\n");
 
-		if (input_char == 'm') {
-			printk("Master role. Starting scanning\n");
+		if (input_char == 'c') {
+			printk("Central. Starting scanning\n");
 			scan_init();
 			scan_start();
 			break;
-		} else if (input_char == 's') {
-			printk("Slave role. Starting advertising\n");
+		} else if (input_char == 'p') {
+			printk("Peripheral. Starting advertising\n");
 			adv_start();
 			break;
 		}
@@ -492,8 +495,7 @@ void main(void)
 	}
 
 	for (;;) {
-		if (test_ready) {
-			test_run();
-		}
+		k_sem_take(&test_ready_sem, K_FOREVER);
+		test_run();
 	}
 }

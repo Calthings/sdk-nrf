@@ -7,7 +7,7 @@ Zigbee quick start guide
    :local:
    :depth: 2
 
-This guide demonstrates some of the basic concepts of the Zigbee network using the |NCS| and the |VSC| extension.
+This guide demonstrates some of the basic concepts of the Zigbee network using the |NCS| and the |nRFVSC|.
 It guides you through the installation of the required tools and programming of the required samples.
 
 Overview
@@ -99,8 +99,8 @@ Software requirements
 For this quick start guide, we will install the following software:
 
 * Toolchain Manager - An application for installing the full |NCS| toolchain.
-* Microsoft's Visual Studio Code - The recommended IDE for the |NCS|.
-* |VSC| - Extension for VS Code that allows you to develop applications for the |NCS|.
+* Microsoft's |VSC| - The recommended IDE for the |NCS|.
+* |nRFVSC| - An add-on for |VSC| that allows you to develop applications for the |NCS|.
 * nRF Command Line Tools - A set of mandatory tools for working with the |NCS|.
 * SEGGER J-Link - Tool for handling the serial connection.
 
@@ -117,22 +117,22 @@ To set up the required software, complete the following steps:
 
    a. `Download nRF Connect for Desktop`_ for your operating system.
    #. Install and run the tool on your machine.
-   #. In the APPS section, click :guilabel:`Install` next to Toolchain Manager.
+   #. In the **APPS** view, click :guilabel:`Install` next to Toolchain Manager.
 
    The app is installed on your machine, and the :guilabel:`Install` button changes to :guilabel:`Open`.
 #. Open the Toolchain Manager in nRF Connect for Desktop.
-#. Click :guilabel:`Settings` in the navigation bar to specify where you want to install the |NCS|.
+#. Click :guilabel:`SETTINGS` in the navigation bar to specify where you want to install the |NCS|.
    Then, in :guilabel:`SDK Environments`, click the :guilabel:`Install` button next to the |NCS| version that you want to install.
    The |NCS| version of your choice is installed on your machine.
 #. Click the :guilabel:`Open VS Code` button.
    The installation wizard checks whether you have the following software installed:
 
-   * Microsoft's Visual Studio Code
-   * |VSC|
+   * Microsoft's |VSC|
+   * |nRFVSC|
    * nRF Command Line Tools (with SEGGER J-Link)
 
    If any of these items is missing, you are taken to its installation page to complete the setup.
-   At the end of the process, the VS Code main window opens.
+   At the end of the process, the |VSC| main window opens.
 
 .. rst-class:: numbered-step
 
@@ -151,9 +151,9 @@ To program the samples, complete the following steps:
 #. Program the application to the board:
 
    a. Connect your development kit using the serial port.
-   #. In the Connected Devices panel, click :guilabel:`Refresh Connected Devices`.
+   #. In the :guilabel:`Connected Devices View`, click :guilabel:`Refresh Connected Devices`.
       Your development kit appears on the list.
-   #. In the Actions panel, click :guilabel:`Flash`.
+   #. In the :guilabel:`Actions View`, click :guilabel:`Flash`.
 
       .. figure:: images/zigbee_qsg_vsc_flash.png
          :alt: nRF Connect for Visual Studio Code - Refresh Connected Devices and Flash buttons

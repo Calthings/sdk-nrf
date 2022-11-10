@@ -59,6 +59,17 @@ static struct k_work download_work;
 
 void client_acknowledge(void);
 
+NRF_MODEM_LIB_ON_INIT(lwm2m_firmware_init_hook,
+		      on_modem_lib_init, NULL);
+
+/* Initialized to value different than success (0) */
+static int modem_lib_init_result = -1;
+
+static void on_modem_lib_init(int ret, void *ctx)
+{
+	modem_lib_init_result = ret;
+}
+
 #if defined(CONFIG_DFU_TARGET_FULL_MODEM)
 static void apply_fmfu_from_ext_flash(struct k_work *work)
 {
@@ -333,9 +344,31 @@ static void fota_download_callback(const struct fota_download_evt *evt)
 
 	/* Following cases mark end of FOTA download */
 	case FOTA_DOWNLOAD_EVT_CANCELLED:
+		LOG_ERR("FOTA_DOWNLOAD_EVT_CANCELLED");
+		lwm2m_firmware_set_update_result(RESULT_DEFAULT);
+		break;
 	case FOTA_DOWNLOAD_EVT_ERROR:
 		LOG_ERR("FOTA_DOWNLOAD_EVT_ERROR");
-		lwm2m_firmware_set_update_state(STATE_IDLE);
+		switch (evt->cause) {
+		/* No error, used when event ID is not FOTA_DOWNLOAD_EVT_ERROR. */
+		case FOTA_DOWNLOAD_ERROR_CAUSE_NO_ERROR:
+			lwm2m_firmware_set_update_result(RESULT_DEFAULT);
+			break;
+		/* Downloading the update failed. The download may be retried. */
+		case FOTA_DOWNLOAD_ERROR_CAUSE_DOWNLOAD_FAILED:
+			lwm2m_firmware_set_update_result(RESULT_CONNECTION_LOST);
+			break;
+		/* The update is invalid and was rejected. Retry will not help. */
+		case FOTA_DOWNLOAD_ERROR_CAUSE_INVALID_UPDATE:
+			/* FALLTHROUGH */
+		/* Actual firmware type does not match expected. Retry will not help. */
+		case FOTA_DOWNLOAD_ERROR_CAUSE_TYPE_MISMATCH:
+			lwm2m_firmware_set_update_result(RESULT_UNSUP_FW);
+			break;
+		default:
+			lwm2m_firmware_set_update_result(RESULT_UPDATE_FAILED);
+			break;
+		}
 		break;
 	case FOTA_DOWNLOAD_EVT_FINISHED:
 		image_type = fota_download_target();
@@ -350,45 +383,48 @@ static void fota_download_callback(const struct fota_download_evt *evt)
 
 static void start_fota_download(struct k_work *work)
 {
+	int ret;
+
 #if defined(CONFIG_DFU_TARGET_FULL_MODEM)
 	/* We can't know if the download is full modem firmware
 	 * before the downloader actually starts, so configure
 	 * the dfu_target_full_modem here
 	 */
-	configure_full_modem_update();
-#endif
-	int ret = fota_download_start(fota_host, fota_path, fota_sec_tag, 0, 0);
-
-	if (ret < 0) {
-		LOG_ERR("fota_download_start() failed, return code %d", ret);
-		lwm2m_firmware_set_update_state(STATE_IDLE);
-		k_free(fota_host);
-		fota_host = NULL;
-		fota_path = NULL;
+	ret = configure_full_modem_update();
+	if (ret) {
+		LOG_ERR("configure_full_modem_update() failed, return code %d", ret);
+		goto err;
 	}
+#endif
+
+	ret = fota_download_start(fota_host, fota_path, fota_sec_tag, 0, 0);
+	if (ret) {
+		LOG_ERR("fota_download_start() failed, return code %d", ret);
+		goto err;
+	}
+
+	lwm2m_firmware_set_update_state(STATE_DOWNLOADING);
+	return;
+
+err:
+	k_free(fota_host);
+	fota_host = NULL;
+	fota_path = NULL;
+	lwm2m_firmware_set_update_result(RESULT_DEFAULT);
+	return;
 }
 
-static int write_dl_uri(uint16_t obj_inst_id,
-			uint16_t res_id, uint16_t res_inst_id,
-			uint8_t *data, uint16_t data_len,
-			bool last_block, size_t total_size)
+static int init_start_download(char *uri)
 {
 	int ret;
 
-	LOG_INF("write URI: %s", log_strdup((char *) data));
 	ret = fota_download_init(fota_download_callback);
 	if (ret != 0) {
 		LOG_ERR("fota_download_init() returned %d", ret);
 		return -EBUSY;
 	}
 
-	if (fota_host) {
-		LOG_ERR("FOTA download already ongoing");
-		return -EBUSY;
-	}
-
-	bool is_tls = strncmp((char *) data, "https://", 8) == 0 ||
-		      strncmp((char *) data, "coaps://", 8) == 0;
+	bool is_tls = strncmp(uri, "https://", 8) == 0 || strncmp(uri, "coaps://", 8) == 0;
 	if (is_tls) {
 		fota_sec_tag = CONFIG_LWM2M_CLIENT_UTILS_DOWNLOADER_SEC_TAG;
 	} else {
@@ -396,7 +432,7 @@ static int write_dl_uri(uint16_t obj_inst_id,
 	}
 
 	/* Find the end of protocol marker https:// or coap:// */
-	char *s = strstr((char *) data, "://");
+	char *s = strstr(uri, "://");
 
 	if (!s) {
 		LOG_ERR("Host not found");
@@ -405,7 +441,7 @@ static int write_dl_uri(uint16_t obj_inst_id,
 	s += strlen("://");
 
 	/* Find the end of host name, which is start of path */
-	char  *e = strchr(s, '/');
+	char *e = strchr(s, '/');
 
 	if (!e) {
 		LOG_ERR("Path not found");
@@ -414,7 +450,7 @@ static int write_dl_uri(uint16_t obj_inst_id,
 
 	/* Path can point to a string, which is kept in LwM2M engine's memory */
 	fota_path = e + 1; /* Skip the '/' from path */
-	int len = e - (char *) data;
+	int len = e - uri;
 
 	/* For host, I need to allocate space, as I need to copy the substring */
 	fota_host = k_malloc(len + 1);
@@ -422,12 +458,54 @@ static int write_dl_uri(uint16_t obj_inst_id,
 		LOG_ERR("Failed to allocate memory");
 		return -ENOMEM;
 	}
-	strncpy(fota_host, (char *)data, len);
+	strncpy(fota_host, uri, len);
 	fota_host[len] = 0;
 
 	k_work_submit(&download_work);
-	lwm2m_firmware_set_update_state(STATE_DOWNLOADING);
+
 	return 0;
+}
+
+static int write_dl_uri(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id, uint8_t *data,
+			uint16_t data_len, bool last_block, size_t total_size)
+{
+	int ret;
+	char *package_uri = (char *)data;
+	uint8_t state;
+
+	LOG_DBG("write URI: %s", package_uri);
+
+	state = lwm2m_firmware_get_update_state();
+
+	if (state == STATE_IDLE) {
+		lwm2m_firmware_set_update_result(RESULT_DEFAULT);
+
+		if (data_len > 0) {
+			ret = init_start_download(package_uri);
+			if (ret) {
+				lwm2m_firmware_set_update_result(RESULT_DEFAULT);
+			}
+		}
+	} else if (state == STATE_DOWNLOADED && data_len == 0U) {
+		/* reset to state idle and result default */
+		lwm2m_firmware_set_update_result(RESULT_DEFAULT);
+	}
+
+	return 0;
+}
+
+int lwm2m_firmware_apply_update(uint16_t obj_inst_id)
+{
+	int ret = 0;
+
+	if (lwm2m_firmware_get_update_state_inst(obj_inst_id) == STATE_UPDATING) {
+		ret = firmware_update_cb(obj_inst_id, NULL, 0);
+	} else {
+		LOG_ERR("No updates scheduled for instance %d", obj_inst_id);
+		ret = -EINVAL;
+	}
+
+	return ret;
 }
 
 void lwm2m_firmware_set_update_state_cb(lwm2m_firmware_get_update_state_cb_t cb)
@@ -453,10 +531,10 @@ int lwm2m_init_firmware(void)
 
 void lwm2m_verify_modem_fw_update(void)
 {
-	int ret = nrf_modem_lib_get_init_ret();
 	struct update_counter counter;
 
 	/* Handle return values relating to modem firmware update */
+	int ret = modem_lib_init_result;
 	switch (ret) {
 	case MODEM_DFU_RESULT_OK:
 		LOG_INF("MODEM UPDATE OK. Will run new firmware");

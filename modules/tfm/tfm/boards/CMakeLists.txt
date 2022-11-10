@@ -31,11 +31,6 @@ target_compile_definitions(platform_s
   EXT_API_MAGIC=${EXT_API_MAGIC}
   )
 
-if (CONFIG_BOOTLOADER_MCUBOOT)
-  # Needed to compile in the MCUBoot secondary region in flash layout.
-  target_compile_definitions(platform_region_defs INTERFACE BL2)
-endif()
-
 target_include_directories(platform_s
   PUBLIC ${partition_includes} ${board_includes}
   ${NRF_DIR}/include
@@ -49,7 +44,6 @@ target_sources(platform_s
   )
 
 # Disabling UART stdout not supported in NS Image, which is always built even when not needed.
-# TODO: Remove when not building NS image.
 target_sources(platform_ns
   PRIVATE
   $<$<NOT:$<BOOL:${PLATFORM_DEFAULT_UART_STDOUT}>>:${CMAKE_CURRENT_SOURCE_DIR}/common/dummy_uart_stdout.c>
@@ -68,6 +62,9 @@ endif()
 
 if (${TFM_PARTITION_CRYPTO})
   target_link_libraries(platform_s PRIVATE platform_cc3xx)
+
+  # Needed in order to get crypto partition modules flags
+  target_link_libraries(platform_s PRIVATE tfm_psa_rot_partition_crypto)
 endif()
 
 if (NRF_ALLOW_NON_SECURE_RESET)

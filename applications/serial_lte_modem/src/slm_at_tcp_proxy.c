@@ -297,7 +297,7 @@ static int do_tcp_client_connect(const char *url, uint16_t port)
 
 	ret = util_resolve_host(0, url, port, proxy.family, &sa);
 	if (ret) {
-		LOG_ERR("getaddrinfo() error: %s", log_strdup(gai_strerror(ret)));
+		LOG_ERR("getaddrinfo() error: %s", gai_strerror(ret));
 		goto exit_cli;
 	}
 	if (sa.sa_family == AF_INET) {
@@ -426,7 +426,7 @@ static int tcp_datamode_callback(uint8_t op, const uint8_t *data, int len)
 static void tcpsvr_terminate_connection(int cause)
 {
 	if (in_datamode()) {
-		(void)exit_datamode(DATAMODE_EXIT_URC);
+		(void)exit_datamode(cause);
 	}
 	if (proxy.sock_peer != INVALID_SOCKET) {
 		close(proxy.sock_peer);
@@ -656,7 +656,7 @@ static void tcpcli_thread_func(void *p1, void *p2, void *p3)
 	}
 
 	if (in_datamode()) {
-		(void)exit_datamode(DATAMODE_EXIT_URC);
+		(void)exit_datamode(ret);
 	}
 	if (proxy.sock != INVALID_SOCKET) {
 		(void)close(proxy.sock);

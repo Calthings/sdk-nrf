@@ -37,7 +37,7 @@ Requirements
    * If only one kit is supported, replace the introduction text with "The sample supports the following development kit:".
    * If several kits are required to test the sample, state it after the table (for example, "You can use one or more of the development kits listed above and mix different development kits.").
    * Mention additional requirements after the table.
-   * If SPM is included in the sample, add ``.. include:: /includes/spm.txt`` to include the standard text that states this.
+   * If TFM is included in the sample, add ``.. include:: /includes/tfm.txt`` to include the standard text that states this.
 
 The sample supports the following development kits:
 
@@ -47,7 +47,7 @@ The sample supports the following development kits:
 
 The sample also requires ...
 
-.. include:: /includes/spm.txt
+.. include:: /includes/tfm.txt
 
 
 Overview
@@ -126,7 +126,7 @@ Configuration options*
    * You do not need to list all configuration options of the sample, but only the ones that are important for the sample and make sense for the user to know about.
    * The syntax below allows sample configuration options to link to the option descriptions in the same way as the library configuration options link to the corresponding Kconfig descriptions (``:kconfig:option:`SAMPLE_CONFIG```, which results in :kconfig:option:`SAMPLE_CONFIG`).
    * For each configuration option, list the symbol name and the string describing it.
-   * For |VSC| instructions, list the configuration options as they are stated on the Generate Configuration screen.
+   * For the |nRFVSC| instructions, list the configuration options as they are stated on the Generate Configuration screen.
 
 Check and configure the following Kconfig options:
 
@@ -175,9 +175,9 @@ Building and running
 ********************
 
 .. note::
-   * Include the standard text for building - either ``.. include:: /includes/build_and_run.txt`` or ``.. include:: /includes/build_and_run_nrf9160.txt``.
-   * The main supported IDE for |NCS| is |VSC|.
-     Therefore, build instructions for |VSC| are required.
+   * Include the standard text for building - either ``.. include:: /includes/build_and_run.txt``, or ``.. include:: /includes/build_and_run_ns.txt`` for the non-secure build targets.
+   * The main supported IDE for |NCS| is |VSC|, with the |nRFVSC| installed.
+     Therefore, build instructions for the |nRFVSC| are required.
      Build instructions for the command line are optional.
    * See the link to the `nRF Connect for Visual Studio Code`_ documentation site for basic instructions on building with the extension.
    * If the sample uses a non-standard setup, point it out and link to more information, if possible.
@@ -239,7 +239,7 @@ References*
 .. tip::
    * Do not duplicate links that have been mentioned in other sections before.
    * Do not include links to documents that are common to all or many of our samples.
-     For example, the Bluetooth Spec or the DK user guides are always important, but shouldn't be listed.
+     For example, the Bluetooth Spec or the DK user guides are always important, but should not be listed.
    * Include specific links, like a chapter in the Bluetooth Spec if the sample demonstrates the respective feature, or a link to the hardware pictures in the DK user guide if there is a lot of wiring required, or specific information about the feature that is presented in the sample.
 
 Dependencies*
@@ -252,6 +252,7 @@ Dependencies*
    * Drivers can be listed under libraries, no need for a separate part.
    * If possible, link to the respective library.
      If there is no documentation for the library, include the path.
+   * Add the appropriate secure firmware component that the sample supports.
 
 This sample uses the following |NCS| libraries:
 
@@ -268,9 +269,10 @@ It uses the following Zephyr libraries:
 
   * ``include/kernel.h``
 
-In addition, it uses the following samples:
+In addition, it uses the following secure firmware components:
 
 * :ref:`secure_partition_manager`
+* :ref:`Trusted Firmware-M <ug_tfm>`
 
 The sample also uses drivers from `nrfx`_.
 

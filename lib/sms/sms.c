@@ -120,6 +120,18 @@ static void sms_reregister(struct k_work *work)
 	err = nrf_modem_at_printf(AT_SMS_SUBSCRIBER_REGISTER);
 	if (err) {
 		LOG_ERR("Unable to re-register SMS client, err: %d", err);
+		/* Pause AT commands notifications. */
+		at_monitor_pause(&sms_at_handler_cmt);
+		at_monitor_pause(&sms_at_handler_cds);
+		at_monitor_pause(&sms_at_handler_cms);
+
+		/* Clear all observers. */
+		for (size_t i = 0; i < ARRAY_SIZE(subscribers); i++) {
+			subscribers[i].ctx = NULL;
+			subscribers[i].listener = NULL;
+		}
+
+		sms_client_registered = false;
 	}
 }
 
@@ -145,7 +157,7 @@ static void sms_at_cmd_handler_cmt(const char *at_notif)
 		"%"STRINGIFY(SMS_BUF_TMP_LEN)"s\r\n",
 		sms_buf_tmp);
 	if (err < 1) {
-		LOG_ERR("Unable to parse CMT notification, err=%d: %s", err, log_strdup(at_notif));
+		LOG_ERR("Unable to parse CMT notification, err=%d: %s", err, at_notif);
 		goto sms_ack_send;
 	}
 
@@ -234,16 +246,16 @@ static int sms_init(void)
 	}
 
 	/* Register for AT commands notifications before creating the client. */
-	at_monitor_resume(sms_at_handler_cmt);
-	at_monitor_resume(sms_at_handler_cds);
-	at_monitor_resume(sms_at_handler_cms);
+	at_monitor_resume(&sms_at_handler_cmt);
+	at_monitor_resume(&sms_at_handler_cds);
+	at_monitor_resume(&sms_at_handler_cms);
 
 	/* Register this module as an SMS client. */
 	ret = nrf_modem_at_printf(AT_SMS_SUBSCRIBER_REGISTER);
 	if (ret) {
-		at_monitor_pause(sms_at_handler_cmt);
-		at_monitor_pause(sms_at_handler_cds);
-		at_monitor_pause(sms_at_handler_cms);
+		at_monitor_pause(&sms_at_handler_cmt);
+		at_monitor_pause(&sms_at_handler_cds);
+		at_monitor_pause(&sms_at_handler_cms);
 		LOG_ERR("Unable to register a new SMS client, err: %d", ret);
 		return ret;
 	}
@@ -335,15 +347,9 @@ static void sms_uninit(void)
 	LOG_DBG("SMS client unregistered");
 
 	/* Pause AT commands notifications. */
-	at_monitor_pause(sms_at_handler_cmt);
-	at_monitor_pause(sms_at_handler_cds);
-	at_monitor_pause(sms_at_handler_cms);
-
-	/* Clear all observers. */
-	for (size_t i = 0; i < ARRAY_SIZE(subscribers); i++) {
-		subscribers[i].ctx = NULL;
-		subscribers[i].listener = NULL;
-	}
+	at_monitor_pause(&sms_at_handler_cmt);
+	at_monitor_pause(&sms_at_handler_cds);
+	at_monitor_pause(&sms_at_handler_cms);
 
 	sms_client_registered = false;
 }

@@ -226,7 +226,12 @@ static void init_rest_client_request(struct nrf_cloud_rest_context const *const 
 	req->port		= HTTPS_PORT;
 	req->host		= CONFIG_NRF_CLOUD_REST_HOST_NAME;
 	req->tls_peer_verify	= TLS_PEER_VERIFY_REQUIRED;
-	req->timeout_ms		= SYS_FOREVER_MS;
+
+	if (rest_ctx->timeout_ms <= 0) {
+		req->timeout_ms = SYS_FOREVER_MS;
+	} else {
+		req->timeout_ms = rest_ctx->timeout_ms;
+	}
 
 	req->http_method	= meth;
 
@@ -259,6 +264,11 @@ static int do_rest_client_request(struct nrf_cloud_rest_context *const rest_ctx,
 	if ((ret == 0) && (rest_ctx->status >= NRF_CLOUD_HTTP_STATUS__ERROR_BEGIN) &&
 	    rest_ctx->response && rest_ctx->response_len) {
 		(void)nrf_cloud_parse_rest_error(rest_ctx->response, &rest_ctx->nrf_err);
+
+		if ((rest_ctx->nrf_err != NRF_CLOUD_ERROR_NONE) &&
+		    (rest_ctx->nrf_err != NRF_CLOUD_ERROR_NOT_FOUND_NO_ERROR)) {
+			LOG_ERR("nRF Cloud REST error code: %d", rest_ctx->nrf_err);
+		}
 	}
 
 	if (ret) {
@@ -942,7 +952,7 @@ int nrf_cloud_rest_agps_data_get(struct nrf_cloud_rest_context *const rest_ctx,
 		remain -= ret;
 	}
 
-	LOG_DBG("req url:%s", log_strdup(url));
+	LOG_DBG("req url:%s", url);
 
 	/* Format auth header */
 	ret = generate_auth_header(rest_ctx->auth, &auth_hdr);
@@ -1244,7 +1254,7 @@ int nrf_cloud_rest_jitp(const sec_tag_t nrf_cloud_sec_tag)
 	req.header_fields	= (const char **)headers;
 	req.url			= JITP_URL;
 	req.host		= JITP_HOSTNAME_TLS;
-	req.timeout_ms		= SYS_FOREVER_MS;
+	req.timeout_ms		= JITP_HTTP_TIMEOUT_MS;
 	req.http_method		= HTTP_POST;
 	req.resp_buff		= rx_buf;
 	req.resp_buff_len	= sizeof(rx_buf);
@@ -1274,32 +1284,25 @@ int nrf_cloud_rest_jitp(const sec_tag_t nrf_cloud_sec_tag)
 }
 
 int nrf_cloud_rest_send_location(struct nrf_cloud_rest_context *const rest_ctx,
-	const char *const device_id, const char *const nmea_sentence, const int64_t ts_ms)
+	const char *const device_id, const struct nrf_cloud_gnss_data * const gnss)
 {
 	__ASSERT_NO_MSG(rest_ctx != NULL);
 	__ASSERT_NO_MSG(device_id != NULL);
-	__ASSERT_NO_MSG(nmea_sentence != NULL);
+	__ASSERT_NO_MSG(gnss != NULL);
 
 	int err = -ENOMEM;
 	char *json_msg = NULL;
+	cJSON *msg_obj = NULL;
 
 	(void)nrf_cloud_codec_init();
 
-	cJSON *root_obj = json_create_req_obj(NRF_CLOUD_JSON_APPID_VAL_GPS,
-					     NRF_CLOUD_JSON_MSG_TYPE_VAL_DATA);
-
-	if (cJSON_AddStringToObjectCS(root_obj, NRF_CLOUD_JSON_DATA_KEY, nmea_sentence) == NULL) {
-		LOG_ERR("Failed to add NMEA string");
+	msg_obj = cJSON_CreateObject();
+	err = nrf_cloud_gnss_msg_json_encode(gnss, msg_obj);
+	if (err) {
 		goto clean_up;
 	}
 
-	if ((ts_ms >= 0) &&
-	    (cJSON_AddNumberToObject(root_obj, NRF_CLOUD_MSG_TIMESTAMP_KEY, ts_ms) == NULL)) {
-		LOG_ERR("Failed to add timestamp");
-		goto clean_up;
-	}
-
-	json_msg = cJSON_PrintUnformatted(root_obj);
+	json_msg = cJSON_PrintUnformatted(msg_obj);
 	if (!json_msg) {
 		LOG_ERR("Failed to print JSON");
 		goto clean_up;
@@ -1308,7 +1311,7 @@ int nrf_cloud_rest_send_location(struct nrf_cloud_rest_context *const rest_ctx,
 	err = nrf_cloud_rest_send_device_message(rest_ctx, device_id, json_msg, false, NULL);
 
 clean_up:
-	cJSON_Delete(root_obj);
+	cJSON_Delete(msg_obj);
 	if (json_msg) {
 		cJSON_free((void *)json_msg);
 	}

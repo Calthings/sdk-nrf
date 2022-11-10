@@ -4,13 +4,20 @@
 # SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 #
 
-if NRF_DM
+config DM_MODULE
+	bool "DM (Distance Measurement) module [EXPERIMENTAL]"
+	select NRF_DM
+	select EXPERIMENTAL
+	help
+		Enable DM (Distance Measurement) module.
+
+if DM_MODULE
 
 menu "nRF DM (Distance Measurement)"
 
 choice NRF_DM_TIMER
 	default NRF_DM_TIMER2
-	prompt "Timer to use for the nrf_dm library."
+	prompt "Timer to use for the nrf_dm library"
 
 config NRF_DM_TIMER0
 	depends on HAS_HW_NRF_TIMER0
@@ -92,7 +99,7 @@ config DM_TIMESLOT_QUEUE_LENGTH
 	  "The maximum number of timeslots that can be scheduled."
 
 config DM_TIMESLOT_QUEUE_COUNT_SAME_PEER
-	int "The number of the same peer in the queue."
+	int "The number of the same peer in the queue"
 	default 10
 	help
 	  "The maximum number of timeslots that can be scheduled for a single peer."
@@ -115,8 +122,10 @@ endif #DM_GPIO_DEBUG
 
 endmenu
 
-module = NRF_DM
-module-str = NRF_DM
+module = DM_MODULE
+module-str = DM_MODULE
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
 
-endif #NRF_DM
+endif #DM_MODULE
+
+rsource "rpc/Kconfig"

@@ -114,6 +114,18 @@ typedef int (*lwm2m_firmware_get_update_state_cb_t)(uint8_t update_state);
 void lwm2m_firmware_set_update_state_cb(lwm2m_firmware_get_update_state_cb_t cb);
 
 /**
+ * @brief Apply the firmware update.
+ *
+ * By default lwm2m firmware is applied when the update resource (5/0/2) is executed.
+ * If application needs to control the update, it can set its own callback for the
+ * update resource calling `lwm2m_firmware_set_update_cb`. After that, the application
+ * can apply the firmware update when it is ready.
+ *
+ * @param[in] obj_inst_id Instance id of the firmware update object.
+ */
+int lwm2m_firmware_apply_update(uint16_t obj_inst_id);
+
+/**
  * @brief Firmware read callback
  */
 void *firmware_read_cb(uint16_t obj_inst_id, size_t *data_len);
@@ -151,6 +163,7 @@ int lwm2m_signal_meas_info_inst_id_to_index(uint16_t obj_inst_id);
 int lwm2m_signal_meas_info_index_to_inst_id(int index);
 int lwm2m_update_signal_meas_objects(const struct lte_lc_cells_info *const cells);
 int lwm2m_ncell_handler_register(void);
+void lwm2m_ncell_schedule_measurement(void);
 #endif
 
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_OBJ_SUPPORT)

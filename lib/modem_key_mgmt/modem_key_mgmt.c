@@ -56,10 +56,15 @@ static void cmee_disable(void)
 
 static int translate_error(int err)
 {
-	/* In case of CME error translate the error value to
-	 * an errno value.
-	 */
-	switch (err) {
+	if (err < 0) {
+		/* Command did not reach modem,
+		 * return error from nrf_modem_at_cmd() directly
+		 */
+		return err;
+	}
+
+	/* In case of CME error translate to an errno value */
+	switch (nrf_modem_at_err(err)) {
 	case 513:
 		return -ENOENT;
 	case 514:
@@ -73,11 +78,9 @@ static int translate_error(int err)
 		 * Return a magic value to make sure this
 		 * situation is clearly distinguishable.
 		 */
-		__ASSERT(false, "Untranslated CME error %d!", err);
+		__ASSERT(false, "Untranslated CME error %d!", nrf_modem_at_err(err));
 		return 0xBAADBAAD;
 	}
-
-	return err;
 }
 
 /* Read the given credential into the static buffer */
@@ -90,14 +93,14 @@ static int key_fetch(nrf_sec_tag_t tag,
 	cmee_enable(&cmee_was_active);
 
 	err = nrf_modem_at_cmd(scratch_buf, sizeof(scratch_buf),
-			       "AT%%CMNG=2,%d,%d", tag, cred_type);
+			       "AT%%CMNG=2,%u,%d", tag, cred_type);
 
 	if (!cmee_was_active) {
 		cmee_disable();
 	}
 
 	if (err) {
-		return translate_error(nrf_modem_at_err(err));
+		return translate_error(err);
 	}
 
 	return 0;
@@ -116,7 +119,7 @@ int modem_key_mgmt_write(nrf_sec_tag_t sec_tag,
 
 	cmee_enable(&cmee_was_enabled);
 
-	err = nrf_modem_at_printf("AT%%CMNG=0,%d,%d,\"%.*s\"",
+	err = nrf_modem_at_printf("AT%%CMNG=0,%u,%d,\"%.*s\"",
 				  sec_tag, cred_type, len, (const char *)buf);
 
 	if (!cmee_was_enabled) {
@@ -124,7 +127,7 @@ int modem_key_mgmt_write(nrf_sec_tag_t sec_tag,
 	}
 
 	if (err) {
-		return translate_error(nrf_modem_at_err(err));
+		return translate_error(err);
 	}
 
 	return 0;
@@ -211,14 +214,14 @@ int modem_key_mgmt_delete(nrf_sec_tag_t sec_tag,
 
 	cmee_enable(&cmee_was_enabled);
 
-	err = nrf_modem_at_printf("AT%%CMNG=3,%d,%d", sec_tag, cred_type);
+	err = nrf_modem_at_printf("AT%%CMNG=3,%u,%d", sec_tag, cred_type);
 
 	if (!cmee_was_enabled) {
 		cmee_disable();
 	}
 
 	if (err) {
-		return translate_error(nrf_modem_at_err(err));
+		return translate_error(err);
 	}
 
 	return 0;
@@ -239,14 +242,14 @@ int modem_key_mgmt_exists(nrf_sec_tag_t sec_tag,
 
 	scratch_buf[0] = '\0';
 	err = nrf_modem_at_cmd(scratch_buf, sizeof(scratch_buf),
-			       "AT%%CMNG=1,%d,%d", sec_tag, cred_type);
+			       "AT%%CMNG=1,%u,%d", sec_tag, cred_type);
 
 	if (!cmee_was_active) {
 		cmee_disable();
 	}
 
 	if (err) {
-		return translate_error(nrf_modem_at_err(err));
+		return translate_error(err);
 	}
 
 	if (strlen(scratch_buf) > strlen("OK\r\n")) {
